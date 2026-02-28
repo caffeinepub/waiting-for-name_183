@@ -1,38 +1,36 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { useAddToCart, useGetProduct } from "@/hooks/useQueries";
+import { useCart } from "@/context/CartContext";
+import { useCustomizationModal } from "@/context/CustomizationModalContext";
+import { useGetProduct } from "@/hooks/useQueries";
 import { getProductImage } from "@/utils/productImages";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { ArrowLeft, Minus, Plus, ShoppingCart } from "lucide-react";
-import { useState } from "react";
+import { ArrowLeft, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
 
 export default function ProductDetailPage() {
   const { id } = useParams({ strict: false });
   const navigate = useNavigate();
-  const [quantity, setQuantity] = useState(1);
 
   const productId = id ? BigInt(id) : null;
   const { data: product, isLoading } = useGetProduct(productId);
-  const addToCartMutation = useAddToCart();
+  const { addToCart } = useCart();
+  const { openCustomizationModal } = useCustomizationModal();
 
-  const handleAddToCart = async () => {
+  const handleAddToCart = () => {
     if (!product) return;
-    try {
-      await addToCartMutation.mutateAsync({
-        productId: product.id,
-        quantity: BigInt(quantity),
-      });
-      toast.success("Added to cart!");
-    } catch (error) {
-      toast.error("Failed to add to cart");
-      console.error(error);
-    }
+    openCustomizationModal(product, (qty, customization) => {
+      addToCart(product.id.toString(), qty, customization);
+      toast.success(`Added ${qty} × ${product.name} to cart!`);
+    });
   };
 
-  const handleBuyNow = async () => {
-    await handleAddToCart();
-    navigate({ to: "/cart" });
+  const handleBuyNow = () => {
+    if (!product) return;
+    openCustomizationModal(product, (qty, customization) => {
+      addToCart(product.id.toString(), qty, customization);
+      navigate({ to: "/cart" });
+    });
   };
 
   if (isLoading) {
@@ -111,48 +109,26 @@ export default function ProductDetailPage() {
                 </CardContent>
               </Card>
 
-              <div className="flex items-center gap-4 mb-6">
-                <div className="flex items-center border-2 border-border rounded-md">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                    disabled={quantity <= 1}
-                  >
-                    <Minus className="w-4 h-4" />
-                  </Button>
-                  <span className="px-4 font-mono font-semibold">
-                    {quantity}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setQuantity((q) => q + 1)}
-                  >
-                    <Plus className="w-4 h-4" />
-                  </Button>
-                </div>
-                <span className="text-sm text-muted-foreground font-mono">
-                  Quantity
-                </span>
-              </div>
+              {/* Customization note */}
+              <p className="text-sm text-muted-foreground font-mono mb-6 p-3 rounded-md bg-primary/10 border border-primary/20">
+                ✏️ You'll choose quantity, colors, size, and design details on
+                the next step.
+              </p>
 
               <div className="flex flex-col sm:flex-row gap-3 mt-auto">
                 <Button
                   size="lg"
                   className="flex-1 text-base gap-2"
                   onClick={handleAddToCart}
-                  disabled={addToCartMutation.isPending}
                 >
                   <ShoppingCart className="w-5 h-5" />
-                  {addToCartMutation.isPending ? "Adding..." : "Add to Cart"}
+                  Add to Cart
                 </Button>
                 <Button
                   size="lg"
                   variant="outline"
                   className="flex-1 text-base"
                   onClick={handleBuyNow}
-                  disabled={addToCartMutation.isPending}
                 >
                   Buy Now
                 </Button>

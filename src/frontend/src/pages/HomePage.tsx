@@ -1,14 +1,16 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { useDesignModal } from "@/context/DesignModalContext";
 import { useGetAllPortfolioItems, useGetAllProducts } from "@/hooks/useQueries";
 import { Link } from "@tanstack/react-router";
-import { ArrowRight, Palette, ShoppingBag, Zap } from "lucide-react";
+import { ArrowRight, Palette, PenTool, ShoppingBag, Zap } from "lucide-react";
 
 export default function HomePage() {
   const { data: portfolio = [], isLoading: portfolioLoading } =
     useGetAllPortfolioItems();
   const { data: products = [], isLoading: productsLoading } =
     useGetAllProducts();
+  const { openModal } = useDesignModal();
 
   const featuredPortfolio = portfolio.slice(0, 3);
   const featuredProducts = products.slice(0, 3);
@@ -45,6 +47,15 @@ export default function HomePage() {
                 <Link to="/shop">
                   Browse Shop <ShoppingBag className="ml-2 w-4 h-4" />
                 </Link>
+              </Button>
+              <Button
+                size="lg"
+                variant="secondary"
+                className="text-base"
+                onClick={openModal}
+              >
+                <PenTool className="mr-2 w-4 h-4" />
+                Custom Design
               </Button>
             </div>
           </div>
@@ -232,7 +243,8 @@ export default function HomePage() {
             Ready to elevate your brand?
           </h2>
           <p className="text-lg sm:text-xl text-muted-foreground mb-8 max-w-2xl mx-auto font-body">
-            Discover our full collection of design work and premium products.
+            Discover our full collection of design work, shop ready-made
+            products, or submit a fully custom design request.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Button asChild size="lg" className="text-base">
@@ -240,6 +252,15 @@ export default function HomePage() {
             </Button>
             <Button asChild size="lg" variant="outline" className="text-base">
               <Link to="/shop">Shop Now</Link>
+            </Button>
+            <Button
+              size="lg"
+              variant="secondary"
+              className="text-base"
+              onClick={openModal}
+            >
+              <PenTool className="mr-2 w-4 h-4" />
+              Request Custom Design
             </Button>
           </div>
         </div>

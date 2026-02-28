@@ -9,10 +9,15 @@ import {
 import { ThemeProvider } from "next-themes";
 import Layout from "./components/Layout";
 import AboutPage from "./pages/AboutPage";
+import AccountPage from "./pages/AccountPage";
 import AdminDashboardPage from "./pages/AdminDashboardPage";
 import AdminLoginPage from "./pages/AdminLoginPage";
 import CartPage from "./pages/CartPage";
+import CheckoutCancelPage from "./pages/CheckoutCancelPage";
+import CheckoutSuccessPage from "./pages/CheckoutSuccessPage";
+import HelpPage from "./pages/HelpPage";
 import HomePage from "./pages/HomePage";
+import OrderReceiptPage from "./pages/OrderReceiptPage";
 import PortfolioPage from "./pages/PortfolioPage";
 import ProductDetailPage from "./pages/ProductDetailPage";
 import ShippingPage from "./pages/ShippingPage";
@@ -72,6 +77,36 @@ const shippingRoute = createRoute({
   component: ShippingPage,
 });
 
+const orderReceiptRoute = createRoute({
+  getParentRoute: () => publicLayoutRoute,
+  path: "/order/$orderId",
+  component: OrderReceiptPage,
+});
+
+const accountRoute = createRoute({
+  getParentRoute: () => publicLayoutRoute,
+  path: "/account",
+  component: AccountPage,
+});
+
+const helpRoute = createRoute({
+  getParentRoute: () => publicLayoutRoute,
+  path: "/help",
+  component: HelpPage,
+});
+
+const checkoutSuccessRoute = createRoute({
+  getParentRoute: () => publicLayoutRoute,
+  path: "/checkout/success",
+  component: CheckoutSuccessPage,
+});
+
+const checkoutCancelRoute = createRoute({
+  getParentRoute: () => publicLayoutRoute,
+  path: "/checkout/cancel",
+  component: CheckoutCancelPage,
+});
+
 // Admin routes — no main nav/footer wrapper
 const adminLoginRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -94,6 +129,11 @@ const routeTree = rootRoute.addChildren([
     cartRoute,
     aboutRoute,
     shippingRoute,
+    orderReceiptRoute,
+    accountRoute,
+    helpRoute,
+    checkoutSuccessRoute,
+    checkoutCancelRoute,
   ]),
   adminLoginRoute,
   adminDashboardRoute,

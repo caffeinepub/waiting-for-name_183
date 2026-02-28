@@ -1,5 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CartItem, Order, PortfolioItem, Product } from "../backend";
+import type {
+  CustomDesignRequest,
+  Order,
+  OrderItem,
+  PortfolioItem,
+  Product,
+} from "../backend";
 import { useActor } from "./useActor";
 
 // Products
@@ -52,64 +58,6 @@ export function useGetPortfolioItem(id: bigint | null) {
   });
 }
 
-// Cart
-export function useGetCartItems() {
-  const { actor, isFetching } = useActor();
-  return useQuery<CartItem[]>({
-    queryKey: ["cart"],
-    queryFn: async () => {
-      if (!actor) return [];
-      return actor.getCartItems();
-    },
-    enabled: !!actor && !isFetching,
-  });
-}
-
-export function useAddToCart() {
-  const { actor } = useActor();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      productId,
-      quantity,
-    }: { productId: bigint; quantity: bigint }) => {
-      if (!actor) throw new Error("Actor not initialized");
-      return actor.addToCart(productId, quantity);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cart"] });
-    },
-  });
-}
-
-export function useRemoveFromCart() {
-  const { actor } = useActor();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (productId: bigint) => {
-      if (!actor) throw new Error("Actor not initialized");
-      return actor.removeFromCart(productId);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cart"] });
-    },
-  });
-}
-
-export function useClearCart() {
-  const { actor } = useActor();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async () => {
-      if (!actor) throw new Error("Actor not initialized");
-      return actor.clearCart();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cart"] });
-    },
-  });
-}
-
 // Orders
 export function useCreateOrder() {
   const { actor } = useActor();
@@ -120,18 +68,25 @@ export function useCreateOrder() {
       email,
       shippingAddress,
       items,
+      createdAt,
     }: {
       customerName: string;
       email: string;
       shippingAddress: string;
-      items: CartItem[];
+      items: OrderItem[];
+      createdAt: string;
     }) => {
       if (!actor) throw new Error("Actor not initialized");
-      return actor.createOrder(customerName, email, shippingAddress, items);
+      return actor.createOrder(
+        customerName,
+        email,
+        shippingAddress,
+        items,
+        createdAt,
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["orders"] });
-      queryClient.invalidateQueries({ queryKey: ["cart"] });
     },
   });
 }
@@ -160,6 +115,29 @@ export function useGetOrder(id: bigint | null) {
   });
 }
 
+export function useUpdateOrderStatus() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      status,
+      trackingNumber,
+    }: {
+      id: bigint;
+      status: string;
+      trackingNumber: string;
+    }) => {
+      if (!actor) throw new Error("Actor not initialized");
+      return actor.updateOrderStatus(id, status, trackingNumber);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["order"] });
+    },
+  });
+}
+
 // Company Info
 export function useGetAboutUs() {
   const { actor, isFetching } = useActor();
@@ -182,5 +160,46 @@ export function useGetShippingInfo() {
       return actor.getShippingInfo();
     },
     enabled: !!actor && !isFetching,
+  });
+}
+
+// Custom Design Requests
+export function useGetAllCustomDesignRequests() {
+  const { actor, isFetching } = useActor();
+  return useQuery<CustomDesignRequest[]>({
+    queryKey: ["designRequests"],
+    queryFn: async () => {
+      if (!actor) return [];
+      return actor.getAllCustomDesignRequests();
+    },
+    enabled: !!actor && !isFetching,
+  });
+}
+
+export function useUpdateCustomDesignRequestStatus() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, status }: { id: bigint; status: string }) => {
+      if (!actor) throw new Error("Actor not initialized");
+      return actor.updateCustomDesignRequestStatus(id, status);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["designRequests"] });
+    },
+  });
+}
+
+export function useDeleteCustomDesignRequest() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: bigint) => {
+      if (!actor) throw new Error("Actor not initialized");
+      return actor.deleteCustomDesignRequest(id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["designRequests"] });
+    },
   });
 }

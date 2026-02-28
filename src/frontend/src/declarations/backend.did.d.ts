@@ -10,14 +10,29 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
-export interface CartItem { 'productId' : bigint, 'quantity' : bigint }
+export interface CustomDesignRequest {
+  'id' : bigint,
+  'customerName' : string,
+  'status' : string,
+  'createdAt' : string,
+  'description' : string,
+  'fileUrls' : Array<string>,
+  'productType' : string,
+  'email' : string,
+  'colorPreferences' : string,
+  'chatEscalation' : boolean,
+}
 export interface Order {
   'id' : bigint,
   'customerName' : string,
+  'status' : string,
+  'trackingNumber' : string,
+  'createdAt' : string,
   'email' : string,
   'shippingAddress' : string,
-  'items' : Array<CartItem>,
+  'items' : Array<OrderItem>,
 }
+export interface OrderItem { 'productId' : bigint, 'quantity' : bigint }
 export interface PortfolioItem {
   'id' : bigint,
   'title' : string,
@@ -34,31 +49,62 @@ export interface Product {
   'category' : string,
   'price' : bigint,
 }
+export interface _CaffeineStorageCreateCertificateResult {
+  'method' : string,
+  'blob_hash' : string,
+}
+export interface _CaffeineStorageRefillInformation {
+  'proposed_top_up_amount' : [] | [bigint],
+}
+export interface _CaffeineStorageRefillResult {
+  'success' : [] | [boolean],
+  'topped_up_amount' : [] | [bigint],
+}
 export interface _SERVICE {
+  '_caffeineStorageBlobIsLive' : ActorMethod<[Uint8Array], boolean>,
+  '_caffeineStorageBlobsToDelete' : ActorMethod<[], Array<Uint8Array>>,
+  '_caffeineStorageConfirmBlobDeletion' : ActorMethod<
+    [Array<Uint8Array>],
+    undefined
+  >,
+  '_caffeineStorageCreateCertificate' : ActorMethod<
+    [string],
+    _CaffeineStorageCreateCertificateResult
+  >,
+  '_caffeineStorageRefillCashier' : ActorMethod<
+    [[] | [_CaffeineStorageRefillInformation]],
+    _CaffeineStorageRefillResult
+  >,
+  '_caffeineStorageUpdateGatewayPrincipals' : ActorMethod<[], undefined>,
+  'addCustomDesignRequest' : ActorMethod<
+    [string, string, string, string, string, Array<string>, string, boolean],
+    bigint
+  >,
   'addPortfolioItem' : ActorMethod<
     [string, string, string, string, string],
     bigint
   >,
   'addProduct' : ActorMethod<[string, string, bigint, string, string], bigint>,
-  'addToCart' : ActorMethod<[bigint, bigint], undefined>,
-  'clearCart' : ActorMethod<[], undefined>,
   'createOrder' : ActorMethod<
-    [string, string, string, Array<CartItem>],
+    [string, string, string, Array<OrderItem>, string],
     bigint
   >,
+  'deleteCustomDesignRequest' : ActorMethod<[bigint], undefined>,
   'deletePortfolioItem' : ActorMethod<[bigint], undefined>,
   'deleteProduct' : ActorMethod<[bigint], undefined>,
   'getAboutUs' : ActorMethod<[], string>,
+  'getAllCustomDesignRequests' : ActorMethod<[], Array<CustomDesignRequest>>,
   'getAllOrders' : ActorMethod<[], Array<Order>>,
   'getAllPortfolioItems' : ActorMethod<[], Array<PortfolioItem>>,
   'getAllProducts' : ActorMethod<[], Array<Product>>,
-  'getCartItems' : ActorMethod<[], Array<CartItem>>,
+  'getCustomDesignRequest' : ActorMethod<[bigint], CustomDesignRequest>,
   'getOrder' : ActorMethod<[bigint], Order>,
   'getPortfolioItem' : ActorMethod<[bigint], PortfolioItem>,
   'getProduct' : ActorMethod<[bigint], Product>,
   'getShippingInfo' : ActorMethod<[], string>,
-  'removeFromCart' : ActorMethod<[bigint], undefined>,
   'updateAboutUs' : ActorMethod<[string], undefined>,
+  'updateCustomDesignRequestStatus' : ActorMethod<[bigint, string], undefined>,
+  'updateOrderStatus' : ActorMethod<[bigint, string, string], undefined>,
   'updatePortfolioItem' : ActorMethod<
     [bigint, string, string, string, string, string],
     undefined

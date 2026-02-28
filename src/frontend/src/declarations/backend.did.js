@@ -8,16 +8,42 @@
 
 import { IDL } from '@icp-sdk/core/candid';
 
-export const CartItem = IDL.Record({
+export const _CaffeineStorageCreateCertificateResult = IDL.Record({
+  'method' : IDL.Text,
+  'blob_hash' : IDL.Text,
+});
+export const _CaffeineStorageRefillInformation = IDL.Record({
+  'proposed_top_up_amount' : IDL.Opt(IDL.Nat),
+});
+export const _CaffeineStorageRefillResult = IDL.Record({
+  'success' : IDL.Opt(IDL.Bool),
+  'topped_up_amount' : IDL.Opt(IDL.Nat),
+});
+export const OrderItem = IDL.Record({
   'productId' : IDL.Nat,
   'quantity' : IDL.Nat,
+});
+export const CustomDesignRequest = IDL.Record({
+  'id' : IDL.Nat,
+  'customerName' : IDL.Text,
+  'status' : IDL.Text,
+  'createdAt' : IDL.Text,
+  'description' : IDL.Text,
+  'fileUrls' : IDL.Vec(IDL.Text),
+  'productType' : IDL.Text,
+  'email' : IDL.Text,
+  'colorPreferences' : IDL.Text,
+  'chatEscalation' : IDL.Bool,
 });
 export const Order = IDL.Record({
   'id' : IDL.Nat,
   'customerName' : IDL.Text,
+  'status' : IDL.Text,
+  'trackingNumber' : IDL.Text,
+  'createdAt' : IDL.Text,
   'email' : IDL.Text,
   'shippingAddress' : IDL.Text,
-  'items' : IDL.Vec(CartItem),
+  'items' : IDL.Vec(OrderItem),
 });
 export const PortfolioItem = IDL.Record({
   'id' : IDL.Nat,
@@ -37,6 +63,46 @@ export const Product = IDL.Record({
 });
 
 export const idlService = IDL.Service({
+  '_caffeineStorageBlobIsLive' : IDL.Func(
+      [IDL.Vec(IDL.Nat8)],
+      [IDL.Bool],
+      ['query'],
+    ),
+  '_caffeineStorageBlobsToDelete' : IDL.Func(
+      [],
+      [IDL.Vec(IDL.Vec(IDL.Nat8))],
+      ['query'],
+    ),
+  '_caffeineStorageConfirmBlobDeletion' : IDL.Func(
+      [IDL.Vec(IDL.Vec(IDL.Nat8))],
+      [],
+      [],
+    ),
+  '_caffeineStorageCreateCertificate' : IDL.Func(
+      [IDL.Text],
+      [_CaffeineStorageCreateCertificateResult],
+      [],
+    ),
+  '_caffeineStorageRefillCashier' : IDL.Func(
+      [IDL.Opt(_CaffeineStorageRefillInformation)],
+      [_CaffeineStorageRefillResult],
+      [],
+    ),
+  '_caffeineStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
+  'addCustomDesignRequest' : IDL.Func(
+      [
+        IDL.Text,
+        IDL.Text,
+        IDL.Text,
+        IDL.Text,
+        IDL.Text,
+        IDL.Vec(IDL.Text),
+        IDL.Text,
+        IDL.Bool,
+      ],
+      [IDL.Nat],
+      [],
+    ),
   'addPortfolioItem' : IDL.Func(
       [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text],
       [IDL.Nat],
@@ -47,26 +113,35 @@ export const idlService = IDL.Service({
       [IDL.Nat],
       [],
     ),
-  'addToCart' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
-  'clearCart' : IDL.Func([], [], []),
   'createOrder' : IDL.Func(
-      [IDL.Text, IDL.Text, IDL.Text, IDL.Vec(CartItem)],
+      [IDL.Text, IDL.Text, IDL.Text, IDL.Vec(OrderItem), IDL.Text],
       [IDL.Nat],
       [],
     ),
+  'deleteCustomDesignRequest' : IDL.Func([IDL.Nat], [], []),
   'deletePortfolioItem' : IDL.Func([IDL.Nat], [], []),
   'deleteProduct' : IDL.Func([IDL.Nat], [], []),
   'getAboutUs' : IDL.Func([], [IDL.Text], ['query']),
+  'getAllCustomDesignRequests' : IDL.Func(
+      [],
+      [IDL.Vec(CustomDesignRequest)],
+      ['query'],
+    ),
   'getAllOrders' : IDL.Func([], [IDL.Vec(Order)], ['query']),
   'getAllPortfolioItems' : IDL.Func([], [IDL.Vec(PortfolioItem)], ['query']),
   'getAllProducts' : IDL.Func([], [IDL.Vec(Product)], ['query']),
-  'getCartItems' : IDL.Func([], [IDL.Vec(CartItem)], ['query']),
+  'getCustomDesignRequest' : IDL.Func(
+      [IDL.Nat],
+      [CustomDesignRequest],
+      ['query'],
+    ),
   'getOrder' : IDL.Func([IDL.Nat], [Order], ['query']),
   'getPortfolioItem' : IDL.Func([IDL.Nat], [PortfolioItem], ['query']),
   'getProduct' : IDL.Func([IDL.Nat], [Product], ['query']),
   'getShippingInfo' : IDL.Func([], [IDL.Text], ['query']),
-  'removeFromCart' : IDL.Func([IDL.Nat], [], []),
   'updateAboutUs' : IDL.Func([IDL.Text], [], []),
+  'updateCustomDesignRequestStatus' : IDL.Func([IDL.Nat, IDL.Text], [], []),
+  'updateOrderStatus' : IDL.Func([IDL.Nat, IDL.Text, IDL.Text], [], []),
   'updatePortfolioItem' : IDL.Func(
       [IDL.Nat, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text],
       [],
@@ -83,13 +158,39 @@ export const idlService = IDL.Service({
 export const idlInitArgs = [];
 
 export const idlFactory = ({ IDL }) => {
-  const CartItem = IDL.Record({ 'productId' : IDL.Nat, 'quantity' : IDL.Nat });
+  const _CaffeineStorageCreateCertificateResult = IDL.Record({
+    'method' : IDL.Text,
+    'blob_hash' : IDL.Text,
+  });
+  const _CaffeineStorageRefillInformation = IDL.Record({
+    'proposed_top_up_amount' : IDL.Opt(IDL.Nat),
+  });
+  const _CaffeineStorageRefillResult = IDL.Record({
+    'success' : IDL.Opt(IDL.Bool),
+    'topped_up_amount' : IDL.Opt(IDL.Nat),
+  });
+  const OrderItem = IDL.Record({ 'productId' : IDL.Nat, 'quantity' : IDL.Nat });
+  const CustomDesignRequest = IDL.Record({
+    'id' : IDL.Nat,
+    'customerName' : IDL.Text,
+    'status' : IDL.Text,
+    'createdAt' : IDL.Text,
+    'description' : IDL.Text,
+    'fileUrls' : IDL.Vec(IDL.Text),
+    'productType' : IDL.Text,
+    'email' : IDL.Text,
+    'colorPreferences' : IDL.Text,
+    'chatEscalation' : IDL.Bool,
+  });
   const Order = IDL.Record({
     'id' : IDL.Nat,
     'customerName' : IDL.Text,
+    'status' : IDL.Text,
+    'trackingNumber' : IDL.Text,
+    'createdAt' : IDL.Text,
     'email' : IDL.Text,
     'shippingAddress' : IDL.Text,
-    'items' : IDL.Vec(CartItem),
+    'items' : IDL.Vec(OrderItem),
   });
   const PortfolioItem = IDL.Record({
     'id' : IDL.Nat,
@@ -109,6 +210,46 @@ export const idlFactory = ({ IDL }) => {
   });
   
   return IDL.Service({
+    '_caffeineStorageBlobIsLive' : IDL.Func(
+        [IDL.Vec(IDL.Nat8)],
+        [IDL.Bool],
+        ['query'],
+      ),
+    '_caffeineStorageBlobsToDelete' : IDL.Func(
+        [],
+        [IDL.Vec(IDL.Vec(IDL.Nat8))],
+        ['query'],
+      ),
+    '_caffeineStorageConfirmBlobDeletion' : IDL.Func(
+        [IDL.Vec(IDL.Vec(IDL.Nat8))],
+        [],
+        [],
+      ),
+    '_caffeineStorageCreateCertificate' : IDL.Func(
+        [IDL.Text],
+        [_CaffeineStorageCreateCertificateResult],
+        [],
+      ),
+    '_caffeineStorageRefillCashier' : IDL.Func(
+        [IDL.Opt(_CaffeineStorageRefillInformation)],
+        [_CaffeineStorageRefillResult],
+        [],
+      ),
+    '_caffeineStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
+    'addCustomDesignRequest' : IDL.Func(
+        [
+          IDL.Text,
+          IDL.Text,
+          IDL.Text,
+          IDL.Text,
+          IDL.Text,
+          IDL.Vec(IDL.Text),
+          IDL.Text,
+          IDL.Bool,
+        ],
+        [IDL.Nat],
+        [],
+      ),
     'addPortfolioItem' : IDL.Func(
         [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text],
         [IDL.Nat],
@@ -119,26 +260,35 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Nat],
         [],
       ),
-    'addToCart' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
-    'clearCart' : IDL.Func([], [], []),
     'createOrder' : IDL.Func(
-        [IDL.Text, IDL.Text, IDL.Text, IDL.Vec(CartItem)],
+        [IDL.Text, IDL.Text, IDL.Text, IDL.Vec(OrderItem), IDL.Text],
         [IDL.Nat],
         [],
       ),
+    'deleteCustomDesignRequest' : IDL.Func([IDL.Nat], [], []),
     'deletePortfolioItem' : IDL.Func([IDL.Nat], [], []),
     'deleteProduct' : IDL.Func([IDL.Nat], [], []),
     'getAboutUs' : IDL.Func([], [IDL.Text], ['query']),
+    'getAllCustomDesignRequests' : IDL.Func(
+        [],
+        [IDL.Vec(CustomDesignRequest)],
+        ['query'],
+      ),
     'getAllOrders' : IDL.Func([], [IDL.Vec(Order)], ['query']),
     'getAllPortfolioItems' : IDL.Func([], [IDL.Vec(PortfolioItem)], ['query']),
     'getAllProducts' : IDL.Func([], [IDL.Vec(Product)], ['query']),
-    'getCartItems' : IDL.Func([], [IDL.Vec(CartItem)], ['query']),
+    'getCustomDesignRequest' : IDL.Func(
+        [IDL.Nat],
+        [CustomDesignRequest],
+        ['query'],
+      ),
     'getOrder' : IDL.Func([IDL.Nat], [Order], ['query']),
     'getPortfolioItem' : IDL.Func([IDL.Nat], [PortfolioItem], ['query']),
     'getProduct' : IDL.Func([IDL.Nat], [Product], ['query']),
     'getShippingInfo' : IDL.Func([], [IDL.Text], ['query']),
-    'removeFromCart' : IDL.Func([IDL.Nat], [], []),
     'updateAboutUs' : IDL.Func([IDL.Text], [], []),
+    'updateCustomDesignRequestStatus' : IDL.Func([IDL.Nat, IDL.Text], [], []),
+    'updateOrderStatus' : IDL.Func([IDL.Nat, IDL.Text, IDL.Text], [], []),
     'updatePortfolioItem' : IDL.Func(
         [IDL.Nat, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text],
         [],
