@@ -4,6 +4,7 @@ import type {
   PortfolioItem,
   Product,
 } from "@/backend";
+import { ImageUploadField } from "@/components/ImageUploadField";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -358,19 +359,11 @@ function ProductsTab() {
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label className="font-mono text-xs uppercase text-muted-foreground">
-                Image URL
-              </Label>
-              <Input
-                value={form.imageUrl}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, imageUrl: e.target.value }))
-                }
-                placeholder="https://..."
-                className="bg-background/50 font-mono text-sm"
-              />
-            </div>
+            <ImageUploadField
+              label="Product Image"
+              value={form.imageUrl}
+              onChange={(v) => setForm((f) => ({ ...f, imageUrl: v }))}
+            />
           </div>
 
           <DialogFooter className="gap-2">
@@ -644,19 +637,11 @@ function PortfolioTab() {
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label className="font-mono text-xs uppercase text-muted-foreground">
-                Image URL
-              </Label>
-              <Input
-                value={form.imageUrl}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, imageUrl: e.target.value }))
-                }
-                placeholder="https://..."
-                className="bg-background/50 font-mono text-sm"
-              />
-            </div>
+            <ImageUploadField
+              label="Portfolio Image"
+              value={form.imageUrl}
+              onChange={(v) => setForm((f) => ({ ...f, imageUrl: v }))}
+            />
           </div>
 
           <DialogFooter className="gap-2">

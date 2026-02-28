@@ -4,7 +4,7 @@ import { useCart } from "@/context/CartContext";
 import { useCustomizationModal } from "@/context/CustomizationModalContext";
 import { useDesignModal } from "@/context/DesignModalContext";
 import { useGetAllProducts } from "@/hooks/useQueries";
-import { getProductImage } from "@/utils/productImages";
+import { getCategoryFallback, getProductImage } from "@/utils/productImages";
 import { Link } from "@tanstack/react-router";
 import { PenTool, ShoppingCart } from "lucide-react";
 import { useState } from "react";
@@ -119,6 +119,14 @@ export default function ShopPage() {
                           )}
                           alt={product.name}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          onError={(e) => {
+                            const fallback = getCategoryFallback(
+                              product.category,
+                            );
+                            if (e.currentTarget.src !== fallback) {
+                              e.currentTarget.src = fallback;
+                            }
+                          }}
                         />
                       </div>
                     </Link>

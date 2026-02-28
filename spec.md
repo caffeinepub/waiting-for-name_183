@@ -1,27 +1,32 @@
-# MEGATRX Graphic Design Ecommerce
+# MEGATRX Ecommerce
 
 ## Current State
-The site has a full ecommerce checkout flow. Payment is done via a Stripe Payment Link (redirect-based). The admin saves a Stripe Payment Link URL in localStorage, and at checkout customers are redirected to that external URL. There is no native Apple Pay or Google Pay button embedded in the page.
+The app has a full ecommerce site with products, portfolio, admin dashboard, cart, checkout, accounts, and more. Product images use a `getProductImage()` utility that maps categories and `/assets/uploads/` paths to local files. However:
+- Product images display as broken "?" when `imageUrl` stored in backend doesn't match the expected formats
+- Profile/account page has no avatar image but shows a broken image placeholder  
+- The admin product/portfolio edit dialogs only have a text "Image URL" field - no file upload capability
 
 ## Requested Changes (Diff)
 
 ### Add
-- `@stripe/stripe-js` and `@stripe/react-stripe-js` npm packages
-- A `StripePaymentButton` component that uses the Stripe Payment Request Button to show a native Apple Pay / Google Pay button when available in the browser
-- Admin Payments tab: a "Stripe Publishable Key" field (in addition to the existing Stripe Payment Link field) so the owner can paste their `pk_live_...` key to enable native Apple Pay/Google Pay
-- On the CartPage checkout sidebar: show the Apple Pay / Google Pay button (via Stripe Payment Request Button) above the regular "Pay Now" button when the browser supports it
-- Clear instructions in admin about needing a Stripe publishable key (not secret key) for the Apple Pay button
+- File upload input in admin Products dialog (click to upload image from device, previewed before save, stored as base64 data URL in the imageUrl field)
+- File upload input in admin Portfolio dialog (same pattern)
+- Image preview in both admin dialogs showing the current or newly selected image
+- Graceful `onError` fallback on all `<img>` tags so broken images show a styled placeholder instead of browser "?" icon
 
 ### Modify
-- `CartPage.tsx`: add Stripe Payment Request Button section above the existing "Pay Now" button when a Stripe publishable key is stored in localStorage
-- `AdminDashboardPage.tsx` PaymentsTab: add a second field for Stripe Publishable Key with instructions
-- `package.json` (frontend): add `@stripe/stripe-js` and `@stripe/react-stripe-js`
+- `getProductImage()` - also accept base64 data URLs and any valid http/https URL, not just `/assets/uploads/` paths
+- `getPortfolioImage()` - same fix
+- All product image `<img>` tags - add `onError` handler to replace broken images with category fallback
+- Admin Products tab: replace plain "Image URL" text input with image upload component (file picker + preview + optional URL fallback)
+- Admin Portfolio tab: same
 
 ### Remove
 - Nothing removed
 
 ## Implementation Plan
-1. Install `@stripe/stripe-js` and `@stripe/react-stripe-js` in frontend/package.json
-2. Create `src/frontend/src/components/StripeApplePayButton.tsx` -- loads Stripe with publishable key, creates a PaymentRequest for the cart total, shows the Payment Request Button (Apple Pay / Google Pay) if available
-3. Update `CartPage.tsx` to import and render `StripeApplePayButton` when a publishable key is set and the cart total > 0
-4. Update `AdminDashboardPage.tsx` PaymentsTab to add a Stripe Publishable Key input field with instructions, stored in localStorage as `megatrx_stripe_pk`
+1. Update `getProductImage` and `getPortfolioImage` in `productImages.ts` to handle base64 data URLs, http/https URLs, and not just `/assets/uploads/` paths
+2. Create a reusable `ImageUploadField` component that shows a preview thumbnail, a "Change Image" / "Upload Image" button that opens a file picker, and a fallback URL text input
+3. Integrate `ImageUploadField` into the ProductsTab dialog (replacing the plain Image URL input)
+4. Integrate `ImageUploadField` into the PortfolioTab dialog (replacing the plain Image URL input)
+5. Add `onError` fallback handlers to all `<img>` tags in ShopPage, ProductDetailPage, PortfolioPage, and any other place product/portfolio images are rendered

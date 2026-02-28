@@ -43,9 +43,22 @@ const fallbackImages = [
   "/assets/generated/product-tshirt.dim_800x800.jpg",
 ];
 
+/** Returns true if the imageUrl is a usable image src (not empty/placeholder) */
+function isValidImageUrl(imageUrl: string | undefined | null): boolean {
+  if (!imageUrl) return false;
+  const s = imageUrl.trim();
+  if (!s) return false;
+  // Accept base64 data URLs
+  if (s.startsWith("data:image/")) return true;
+  // Accept absolute http/https URLs
+  if (s.startsWith("http://") || s.startsWith("https://")) return true;
+  // Accept local asset paths
+  if (s.startsWith("/assets/")) return true;
+  return false;
+}
+
 export function getProductImage(category: string, imageUrl: string): string {
-  // If imageUrl is a valid /assets/uploads/ path, use it directly
-  if (imageUrl?.startsWith("/assets/uploads/")) {
+  if (isValidImageUrl(imageUrl)) {
     return imageUrl;
   }
   // Look up category in the local map
@@ -60,8 +73,7 @@ export function getProductImage(category: string, imageUrl: string): string {
 }
 
 export function getPortfolioImage(title: string, imageUrl: string): string {
-  // If imageUrl is a valid /assets/uploads/ path, use it directly
-  if (imageUrl?.startsWith("/assets/uploads/")) {
+  if (isValidImageUrl(imageUrl)) {
     return imageUrl;
   }
   // Search portfolio map by partial title match
@@ -79,4 +91,13 @@ export function getPortfolioImage(title: string, imageUrl: string): string {
     Math.abs(title.split("").reduce((s, c) => s + c.charCodeAt(0), 0)) %
     uploadedImages.length;
   return uploadedImages[idx];
+}
+
+/** Category-based fallback for use in onError handlers */
+export function getCategoryFallback(category: string): string {
+  if (categoryImageMap[category]) return categoryImageMap[category];
+  const idx =
+    Math.abs(category.split("").reduce((s, c) => s + c.charCodeAt(0), 0)) %
+    fallbackImages.length;
+  return fallbackImages[idx];
 }

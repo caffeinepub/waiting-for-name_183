@@ -84,6 +84,20 @@ export default function PortfolioPage() {
                         src={getPortfolioImage(item.title, item.imageUrl)}
                         alt={item.title}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        onError={(e) => {
+                          e.currentTarget.style.display = "none";
+                          const parent = e.currentTarget.parentElement;
+                          if (
+                            parent &&
+                            !parent.querySelector(".img-fallback")
+                          ) {
+                            const fb = document.createElement("div");
+                            fb.className =
+                              "img-fallback w-full h-full flex items-center justify-center bg-muted text-muted-foreground text-xs font-mono";
+                            fb.textContent = item.category;
+                            parent.appendChild(fb);
+                          }
+                        }}
                       />
                     </div>
                     <CardContent className="p-4 sm:p-6">
@@ -134,6 +148,9 @@ export default function PortfolioPage() {
                   )}
                   alt={selectedItem.title}
                   className="w-full h-full object-contain"
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
                 />
               </div>
               <p className="text-muted-foreground font-body">

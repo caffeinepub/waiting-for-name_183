@@ -3,7 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useCart } from "@/context/CartContext";
 import { useCustomizationModal } from "@/context/CustomizationModalContext";
 import { useGetProduct } from "@/hooks/useQueries";
-import { getProductImage } from "@/utils/productImages";
+import { getCategoryFallback, getProductImage } from "@/utils/productImages";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { ArrowLeft, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
@@ -84,6 +84,12 @@ export default function ProductDetailPage() {
                 src={getProductImage(product.category, product.imageUrl)}
                 alt={product.name}
                 className="w-full h-full object-cover"
+                onError={(e) => {
+                  const fallback = getCategoryFallback(product.category);
+                  if (e.currentTarget.src !== fallback) {
+                    e.currentTarget.src = fallback;
+                  }
+                }}
               />
             </div>
 
