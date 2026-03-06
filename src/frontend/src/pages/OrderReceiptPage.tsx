@@ -180,21 +180,57 @@ export default function OrderReceiptPage() {
                       Order Status
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="flex flex-wrap items-center gap-3">
-                    <span
-                      className={`inline-flex items-center gap-1.5 text-sm font-mono border px-3 py-1.5 rounded-full ${getStatusBadgeClass(order.status)}`}
-                    >
-                      {getStatusIcon(order.status)}
-                      {order.status.charAt(0).toUpperCase() +
-                        order.status.slice(1)}
-                    </span>
-                    <div className="flex items-center gap-2 text-sm">
-                      <Truck className="w-4 h-4 text-muted-foreground" />
-                      <span className="text-muted-foreground">Tracking: </span>
-                      <span className="font-mono font-medium">
-                        {order.trackingNumber || "Processing"}
+                  <CardContent className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span
+                        className={`inline-flex items-center gap-1.5 text-sm font-mono border px-3 py-1.5 rounded-full ${getStatusBadgeClass(order.status)}`}
+                      >
+                        {getStatusIcon(order.status)}
+                        {order.status.charAt(0).toUpperCase() +
+                          order.status.slice(1)}
                       </span>
                     </div>
+                    {order.trackingNumber ? (
+                      <div className="p-3 rounded-md bg-primary/10 border border-primary/30">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Truck className="w-4 h-4 text-primary" />
+                          <span className="text-sm font-semibold text-foreground">
+                            Tracking Number
+                          </span>
+                        </div>
+                        <p className="font-mono font-bold text-primary text-lg mb-2">
+                          {order.trackingNumber}
+                        </p>
+                        <div className="flex flex-wrap gap-3 text-xs">
+                          <a
+                            href={`https://www.ups.com/track?tracknum=${order.trackingNumber}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline underline-offset-2 font-mono"
+                          >
+                            Track via UPS →
+                          </a>
+                          <a
+                            href={`https://tools.usps.com/go/TrackConfirmAction?tLabels=${order.trackingNumber}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline underline-offset-2 font-mono"
+                          >
+                            Track via USPS →
+                          </a>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Truck className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-muted-foreground">
+                          Tracking:{" "}
+                        </span>
+                        <span className="font-mono font-medium text-muted-foreground">
+                          Will be provided when shipped
+                        </span>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
 

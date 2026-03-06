@@ -7,24 +7,69 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { useGetAllPortfolioItems } from "@/hooks/useQueries";
 import { getPortfolioImage } from "@/utils/productImages";
+import { Search } from "lucide-react";
 import { useState } from "react";
 import type { PortfolioItem } from "../backend";
 
+// Load localStorage portfolio items and convert to PortfolioItem shape
+function getLocalStoragePortfolio(): PortfolioItem[] {
+  try {
+    const raw = localStorage.getItem("megatrx_portfolio");
+    if (!raw) return [];
+    const items = JSON.parse(raw) as Array<{
+      id: string;
+      title: string;
+      description: string;
+      category: string;
+      imageUrl: string;
+      clientName: string;
+    }>;
+    return items.map((p) => ({
+      id: BigInt(p.id.replace(/\D/g, "") || "0") as bigint,
+      title: p.title,
+      description: p.description,
+      category: p.category,
+      imageUrl: p.imageUrl,
+      clientName: p.clientName,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export default function PortfolioPage() {
-  const { data: portfolio = [], isLoading } = useGetAllPortfolioItems();
+  const { data: backendPortfolio = [], isLoading } = useGetAllPortfolioItems();
   const [selectedItem, setSelectedItem] = useState<PortfolioItem | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Merge localStorage portfolio (first) with backend portfolio
+  const localPortfolio = getLocalStoragePortfolio();
+  const backendIds = new Set(backendPortfolio.map((p) => p.id.toString()));
+  const uniqueLocalPortfolio = localPortfolio.filter(
+    (p) => !backendIds.has(p.id.toString()),
+  );
+  const portfolio = [...uniqueLocalPortfolio, ...backendPortfolio];
 
   const categories = [
     "All",
     ...new Set(portfolio.map((item) => item.category)),
   ];
-  const filteredPortfolio =
-    selectedCategory === "All"
-      ? portfolio
-      : portfolio.filter((item) => item.category === selectedCategory);
+
+  const filteredPortfolio = portfolio.filter((item) => {
+    const matchesCategory =
+      selectedCategory === "All" || item.category === selectedCategory;
+    const matchesSearch =
+      !searchQuery ||
+      item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.description.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
 
   return (
     <div className="w-full">
@@ -43,9 +88,21 @@ export default function PortfolioPage() {
         </div>
       </section>
 
-      <section className="py-8 sm:py-12 border-b border-border bg-muted/30">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-wrap gap-2">
+      <section className="py-6 sm:py-8 border-b border-border bg-muted/30">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8 space-y-4">
+          {/* Search */}
+          <div className="relative max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search portfolio..."
+              className="pl-9 bg-background/50"
+              data-ocid="portfolio.search_input"
+            />
+          </div>
+          {/* Category filters */}
+          <div className="flex flex-wrap gap-2 items-center">
             {categories.map((category) => (
               <Button
                 key={category}
@@ -53,10 +110,15 @@ export default function PortfolioPage() {
                 size="sm"
                 onClick={() => setSelectedCategory(category)}
                 className="font-mono text-xs"
+                data-ocid="portfolio.filter.tab"
               >
                 {category}
               </Button>
             ))}
+            <span className="text-xs text-muted-foreground font-mono ml-2">
+              {filteredPortfolio.length} item
+              {filteredPortfolio.length !== 1 ? "s" : ""}
+            </span>
           </div>
         </div>
       </section>

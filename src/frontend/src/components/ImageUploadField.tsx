@@ -3,6 +3,53 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ImageIcon, Upload, X } from "lucide-react";
 import { useRef, useState } from "react";
+import { toast } from "sonner";
+
+async function compressImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d")!;
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const MAX = 400;
+      let w = img.width;
+      let h = img.height;
+      if (w > MAX || h > MAX) {
+        if (w > h) {
+          h = Math.round((h * MAX) / w);
+          w = MAX;
+        } else {
+          w = Math.round((w * MAX) / h);
+          h = MAX;
+        }
+      }
+      canvas.width = w;
+      canvas.height = h;
+      ctx.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      let compressed = canvas.toDataURL("image/jpeg", 0.5);
+      // Extra compression pass if still too large
+      if (compressed.length > 400000) {
+        compressed = canvas.toDataURL("image/jpeg", 0.3);
+      }
+      if (compressed.length > 800000) {
+        reject(
+          new Error(
+            "Image too large even after compression. Please use a smaller image file.",
+          ),
+        );
+        return;
+      }
+      resolve(compressed);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Failed to load image"));
+    };
+    img.src = url;
+  });
+}
 
 interface ImageUploadFieldProps {
   value: string;
@@ -30,16 +77,22 @@ export function ImageUploadField({
 
   const previewSrc = value || fallbackSrc || "";
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const result = event.target?.result as string;
-      onChange(result);
+    try {
+      const compressed = await compressImage(file);
+      onChange(compressed);
       setPreviewError(false);
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "Failed to process image";
+      if (msg.includes("too large")) {
+        toast.error("Image is too large. Please use a photo under 2MB.");
+      } else {
+        toast.error(msg);
+      }
+    }
     // Reset file input so the same file can be re-selected
     e.target.value = "";
   }

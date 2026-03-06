@@ -168,6 +168,15 @@ const SEED_PRODUCTS = [
 // Seed portfolio — imageUrl empty so getPortfolioImage() uses title-based lookup
 const SEED_PORTFOLIO = [
   {
+    title: "MEGATRX Brand Identity",
+    description:
+      "Official MEGATRX lettermark logo design — bold, rebellious identity for a graphic design powerhouse.",
+    category: "Brand Identity",
+    imageUrl:
+      "/assets/uploads/Rebellious-Lettermark-for-Music-Brand-MEGATRAX-3-1.PNG",
+    clientName: "MEGATRX",
+  },
+  {
     title: "Tumbler Design — I Love ASL",
     description:
       "Custom tumbler wrap featuring sign language 'I Love You' design. Sublimation print.",

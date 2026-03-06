@@ -6,6 +6,7 @@ import { useGetProduct } from "@/hooks/useQueries";
 import { getCategoryFallback, getProductImage } from "@/utils/productImages";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { ArrowLeft, ShoppingCart } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 export default function ProductDetailPage() {
@@ -16,21 +17,38 @@ export default function ProductDetailPage() {
   const { data: product, isLoading } = useGetProduct(productId);
   const { addToCart } = useCart();
   const { openCustomizationModal } = useCustomizationModal();
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
+
+  function getProductSizes(p: typeof product): string[] {
+    if (!p) return [];
+    if ("sizes" in p && Array.isArray((p as { sizes?: string[] }).sizes)) {
+      return (p as { sizes?: string[] }).sizes ?? [];
+    }
+    return [];
+  }
 
   const handleAddToCart = () => {
     if (!product) return;
-    openCustomizationModal(product, (qty, customization) => {
-      addToCart(product.id.toString(), qty, customization);
-      toast.success(`Added ${qty} × ${product.name} to cart!`);
-    });
+    openCustomizationModal(
+      product,
+      (qty, customization) => {
+        addToCart(product.id.toString(), qty, customization);
+        toast.success(`Added ${qty} × ${product.name} to cart!`);
+      },
+      getProductSizes(product),
+    );
   };
 
   const handleBuyNow = () => {
     if (!product) return;
-    openCustomizationModal(product, (qty, customization) => {
-      addToCart(product.id.toString(), qty, customization);
-      navigate({ to: "/cart" });
-    });
+    openCustomizationModal(
+      product,
+      (qty, customization) => {
+        addToCart(product.id.toString(), qty, customization);
+        navigate({ to: "/cart" });
+      },
+      getProductSizes(product),
+    );
   };
 
   if (isLoading) {
@@ -79,18 +97,71 @@ export default function ProductDetailPage() {
       <section className="py-12 sm:py-16">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
-            <div className="aspect-square overflow-hidden bg-muted rounded-md border-2 border-border">
-              <img
-                src={getProductImage(product.category, product.imageUrl)}
-                alt={product.name}
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  const fallback = getCategoryFallback(product.category);
-                  if (e.currentTarget.src !== fallback) {
-                    e.currentTarget.src = fallback;
-                  }
-                }}
-              />
+            {/* Image Gallery */}
+            <div className="space-y-3">
+              {/* Main image */}
+              <div className="aspect-square overflow-hidden bg-muted rounded-md border-2 border-border">
+                {(() => {
+                  const allImages =
+                    product.imageUrls && product.imageUrls.length > 0
+                      ? product.imageUrls
+                      : [product.imageUrl].filter(Boolean);
+                  const activeImg =
+                    allImages[activeImageIndex] ?? allImages[0] ?? "";
+                  return (
+                    <img
+                      src={getProductImage(product.category, activeImg)}
+                      alt={product.name}
+                      className="w-full h-full object-cover transition-opacity duration-200"
+                      onError={(e) => {
+                        const fallback = getCategoryFallback(product.category);
+                        if (e.currentTarget.src !== fallback) {
+                          e.currentTarget.src = fallback;
+                        }
+                      }}
+                    />
+                  );
+                })()}
+              </div>
+
+              {/* Thumbnails — only shown if more than 1 image */}
+              {(() => {
+                const allImages =
+                  product.imageUrls && product.imageUrls.length > 0
+                    ? product.imageUrls
+                    : [product.imageUrl].filter(Boolean);
+                if (allImages.length <= 1) return null;
+                return (
+                  <div className="flex gap-2 flex-wrap">
+                    {allImages.map((imgUrl, index) => (
+                      <button
+                        key={`thumb-${index}-${imgUrl.slice(0, 15)}`}
+                        type="button"
+                        onClick={() => setActiveImageIndex(index)}
+                        className={`w-20 h-20 rounded overflow-hidden border-2 transition-all shrink-0 ${
+                          activeImageIndex === index
+                            ? "border-primary ring-1 ring-primary"
+                            : "border-border hover:border-primary/50"
+                        }`}
+                      >
+                        <img
+                          src={imgUrl}
+                          alt={`${product.name} view ${index + 1}`}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            const fallback = getCategoryFallback(
+                              product.category,
+                            );
+                            if (e.currentTarget.src !== fallback) {
+                              e.currentTarget.src = fallback;
+                            }
+                          }}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="flex flex-col">

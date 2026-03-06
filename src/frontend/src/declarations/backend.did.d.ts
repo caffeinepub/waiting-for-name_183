@@ -22,6 +22,12 @@ export interface CustomDesignRequest {
   'colorPreferences' : string,
   'chatEscalation' : boolean,
 }
+export interface IntegrationSettings {
+  'printifyShopId' : string,
+  'shopifyDomain' : string,
+  'printifyApiKey' : string,
+  'shopifyApiToken' : string,
+}
 export interface Order {
   'id' : bigint,
   'customerName' : string,
@@ -43,12 +49,42 @@ export interface PortfolioItem {
 }
 export interface Product {
   'id' : bigint,
+  'imageUrls' : Array<string>,
   'name' : string,
   'description' : string,
+  'stock' : bigint,
   'imageUrl' : string,
   'category' : string,
   'price' : bigint,
 }
+export interface ShoppingItem {
+  'productName' : string,
+  'currency' : string,
+  'quantity' : bigint,
+  'priceInCents' : bigint,
+  'productDescription' : string,
+}
+export interface StripeConfiguration {
+  'allowedCountries' : Array<string>,
+  'secretKey' : string,
+}
+export type StripeSessionStatus = {
+    'completed' : { 'userPrincipal' : [] | [string], 'response' : string }
+  } |
+  { 'failed' : { 'error' : string } };
+export interface TransformationInput {
+  'context' : Uint8Array,
+  'response' : http_request_result,
+}
+export interface TransformationOutput {
+  'status' : bigint,
+  'body' : Uint8Array,
+  'headers' : Array<http_header>,
+}
+export interface UserProfile { 'name' : string, 'email' : string }
+export type UserRole = { 'admin' : null } |
+  { 'user' : null } |
+  { 'guest' : null };
 export interface _CaffeineStorageCreateCertificateResult {
   'method' : string,
   'blob_hash' : string,
@@ -59,6 +95,12 @@ export interface _CaffeineStorageRefillInformation {
 export interface _CaffeineStorageRefillResult {
   'success' : [] | [boolean],
   'topped_up_amount' : [] | [bigint],
+}
+export interface http_header { 'value' : string, 'name' : string }
+export interface http_request_result {
+  'status' : bigint,
+  'body' : Uint8Array,
+  'headers' : Array<http_header>,
 }
 export interface _SERVICE {
   '_caffeineStorageBlobIsLive' : ActorMethod<[Uint8Array], boolean>,
@@ -76,6 +118,7 @@ export interface _SERVICE {
     _CaffeineStorageRefillResult
   >,
   '_caffeineStorageUpdateGatewayPrincipals' : ActorMethod<[], undefined>,
+  '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
   'addCustomDesignRequest' : ActorMethod<
     [string, string, string, string, string, Array<string>, string, boolean],
     bigint
@@ -85,6 +128,15 @@ export interface _SERVICE {
     bigint
   >,
   'addProduct' : ActorMethod<[string, string, bigint, string, string], bigint>,
+  'addProductWithImages' : ActorMethod<
+    [string, string, bigint, string, string, Array<string>, bigint],
+    bigint
+  >,
+  'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
+  'createCheckoutSession' : ActorMethod<
+    [Array<ShoppingItem>, string, string],
+    string
+  >,
   'createOrder' : ActorMethod<
     [string, string, string, Array<OrderItem>, string],
     bigint
@@ -97,11 +149,28 @@ export interface _SERVICE {
   'getAllOrders' : ActorMethod<[], Array<Order>>,
   'getAllPortfolioItems' : ActorMethod<[], Array<PortfolioItem>>,
   'getAllProducts' : ActorMethod<[], Array<Product>>,
+  'getAllSiteTexts' : ActorMethod<[], Array<[string, string]>>,
+  'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
+  'getCallerUserRole' : ActorMethod<[], UserRole>,
   'getCustomDesignRequest' : ActorMethod<[bigint], CustomDesignRequest>,
+  'getHumanRequestCount' : ActorMethod<[], bigint>,
+  'getIntegrationSettings' : ActorMethod<[], IntegrationSettings>,
+  'getNotificationEmail' : ActorMethod<[], string>,
   'getOrder' : ActorMethod<[bigint], Order>,
   'getPortfolioItem' : ActorMethod<[bigint], PortfolioItem>,
   'getProduct' : ActorMethod<[bigint], Product>,
   'getShippingInfo' : ActorMethod<[], string>,
+  'getSiteText' : ActorMethod<[string], string>,
+  'getStripeSessionStatus' : ActorMethod<[string], StripeSessionStatus>,
+  'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
+  'isCallerAdmin' : ActorMethod<[], boolean>,
+  'isStripeConfigured' : ActorMethod<[], boolean>,
+  'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
+  'setIntegrationSettings' : ActorMethod<[IntegrationSettings], undefined>,
+  'setNotificationEmail' : ActorMethod<[string], undefined>,
+  'setSiteText' : ActorMethod<[string, string], undefined>,
+  'setStripeConfiguration' : ActorMethod<[StripeConfiguration], undefined>,
+  'transform' : ActorMethod<[TransformationInput], TransformationOutput>,
   'updateAboutUs' : ActorMethod<[string], undefined>,
   'updateCustomDesignRequestStatus' : ActorMethod<[bigint, string], undefined>,
   'updateOrderStatus' : ActorMethod<[bigint, string, string], undefined>,
@@ -111,6 +180,10 @@ export interface _SERVICE {
   >,
   'updateProduct' : ActorMethod<
     [bigint, string, string, bigint, string, string],
+    undefined
+  >,
+  'updateProductWithImages' : ActorMethod<
+    [bigint, string, string, bigint, string, string, Array<string>, bigint],
     undefined
   >,
   'updateShippingInfo' : ActorMethod<[string], undefined>,

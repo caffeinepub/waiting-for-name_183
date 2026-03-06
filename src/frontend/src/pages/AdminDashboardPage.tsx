@@ -1,10 +1,6 @@
-import type {
-  CustomDesignRequest,
-  Order,
-  PortfolioItem,
-  Product,
-} from "@/backend";
+import type { CustomDesignRequest, Order } from "@/backend";
 import { ImageUploadField } from "@/components/ImageUploadField";
+import { MultiImageUploadField } from "@/components/MultiImageUploadField";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,40 +33,100 @@ import { Textarea } from "@/components/ui/textarea";
 import { useActor } from "@/hooks/useActor";
 import {
   useDeleteCustomDesignRequest,
-  useGetAboutUs,
   useGetAllCustomDesignRequests,
   useGetAllOrders,
-  useGetAllPortfolioItems,
-  useGetAllProducts,
-  useGetShippingInfo,
-  useUpdateCustomDesignRequestStatus,
-  useUpdateOrderStatus,
+  useGetHumanRequestCount,
+  useGetIntegrationSettings,
+  useGetNotificationEmail,
+  useSetIntegrationSettings,
+  useSetNotificationEmail,
 } from "@/hooks/useQueries";
+import { AIStudioTab } from "@/pages/DesignToolsPage";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
+  AlertTriangle,
   Bell,
   BellOff,
+  Bot,
   Building2,
   CheckCircle2,
   ClipboardList,
   CreditCard,
   FileText,
+  Image,
+  Link2,
   Loader2,
   Lock,
   LogOut,
   Mail,
+  MessageSquare,
   Package,
   Palette,
   Paperclip,
   PenTool,
+  Printer,
+  Send,
+  Settings,
   Shield,
   ShoppingBag,
+  Store,
   Trash2,
   Truck,
+  User,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+
+// ─── Local Storage Product/Portfolio Types ────────────────────────────────────
+
+interface LocalProduct {
+  id: string;
+  name: string;
+  description: string;
+  price: number; // cents as number
+  category: string;
+  imageUrls: string[];
+  stock: number;
+  sizes?: string[];
+}
+
+interface LocalPortfolioItem {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  imageUrl: string;
+  clientName: string;
+}
+
+function loadLocalProducts(): LocalProduct[] {
+  try {
+    const raw = localStorage.getItem("megatrx_products");
+    if (!raw) return [];
+    return JSON.parse(raw) as LocalProduct[];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalProducts(products: LocalProduct[]) {
+  localStorage.setItem("megatrx_products", JSON.stringify(products));
+}
+
+function loadLocalPortfolio(): LocalPortfolioItem[] {
+  try {
+    const raw = localStorage.getItem("megatrx_portfolio");
+    if (!raw) return [];
+    return JSON.parse(raw) as LocalPortfolioItem[];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalPortfolio(items: LocalPortfolioItem[]) {
+  localStorage.setItem("megatrx_portfolio", JSON.stringify(items));
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -100,19 +156,19 @@ const PORTFOLIO_CATEGORIES = [
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
-function formatPrice(price: bigint): string {
-  return `$${(Number(price) / 100).toFixed(2)}`;
+function formatPriceCents(priceCents: number): string {
+  return `$${(priceCents / 100).toFixed(2)}`;
 }
 
-// ─── Products Tab ─────────────────────────────────────────────────────────────
+// ─── Products Tab (localStorage-backed) ──────────────────────────────────────
 
 function ProductsTab() {
-  const { actor } = useActor();
-  const queryClient = useQueryClient();
-  const { data: products = [], isLoading } = useGetAllProducts();
+  const [products, setProducts] = useState<LocalProduct[]>(() =>
+    loadLocalProducts(),
+  );
 
   const [showAddDialog, setShowAddDialog] = useState(false);
-  const [editProduct, setEditProduct] = useState<Product | null>(null);
+  const [editProduct, setEditProduct] = useState<LocalProduct | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const emptyForm = {
@@ -120,23 +176,31 @@ function ProductsTab() {
     description: "",
     category: "",
     price: "",
-    imageUrl: "",
+    imageUrls: [] as string[],
+    stock: "0",
+    sizesInput: "",
   };
   const [form, setForm] = useState(emptyForm);
+  const [categoryInput, setCategoryInput] = useState("");
+  const [showCatSuggestions, setShowCatSuggestions] = useState(false);
 
   function openAdd() {
     setForm(emptyForm);
+    setCategoryInput("");
     setShowAddDialog(true);
   }
 
-  function openEdit(product: Product) {
+  function openEdit(product: LocalProduct) {
     setForm({
       name: product.name,
       description: product.description,
       category: product.category,
-      price: (Number(product.price) / 100).toFixed(2),
-      imageUrl: product.imageUrl,
+      price: (product.price / 100).toFixed(2),
+      imageUrls: product.imageUrls,
+      stock: product.stock.toString(),
+      sizesInput: product.sizes?.join(", ") ?? "",
     });
+    setCategoryInput(product.category);
     setEditProduct(product);
   }
 
@@ -144,54 +208,73 @@ function ProductsTab() {
     setShowAddDialog(false);
     setEditProduct(null);
     setForm(emptyForm);
+    setCategoryInput("");
   }
 
-  async function handleSave() {
-    if (!actor || !form.name || !form.category || !form.price) return;
+  function handleSave() {
+    if (!form.name || !form.category || !form.price) return;
     setIsSubmitting(true);
     try {
-      const priceCents = BigInt(
-        Math.round(Number.parseFloat(form.price) * 100),
+      const priceCents = Math.round(Number.parseFloat(form.price) * 100);
+      const stockQty = Math.max(
+        0,
+        Math.round(Number.parseInt(form.stock, 10) || 0),
       );
+      const sizes = form.sizesInput
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
       if (editProduct) {
-        await actor.updateProduct(
-          editProduct.id,
-          form.name,
-          form.description,
-          priceCents,
-          form.category,
-          form.imageUrl,
+        const updated = products.map((p) =>
+          p.id === editProduct.id
+            ? {
+                ...p,
+                name: form.name,
+                description: form.description,
+                category: form.category,
+                price: priceCents,
+                imageUrls: form.imageUrls,
+                stock: stockQty,
+                sizes,
+              }
+            : p,
         );
+        saveLocalProducts(updated);
+        setProducts(updated);
         toast.success("Product updated");
       } else {
-        await actor.addProduct(
-          form.name,
-          form.description,
-          priceCents,
-          form.category,
-          form.imageUrl,
-        );
+        const newProduct: LocalProduct = {
+          id: Date.now().toString(),
+          name: form.name,
+          description: form.description,
+          category: form.category,
+          price: priceCents,
+          imageUrls: form.imageUrls,
+          stock: stockQty,
+          sizes,
+        };
+        const updated = [...products, newProduct];
+        saveLocalProducts(updated);
+        setProducts(updated);
         toast.success("Product added");
       }
-      await queryClient.invalidateQueries({ queryKey: ["products"] });
       closeDialogs();
-    } catch {
-      toast.error("Failed to save product");
+    } catch (err) {
+      toast.error(
+        `Failed to save: ${err instanceof Error ? err.message : "Unknown error"}`,
+      );
     } finally {
       setIsSubmitting(false);
     }
   }
 
-  async function handleDelete(id: bigint) {
-    if (!actor) return;
+  function handleDelete(id: string) {
     if (!confirm("Delete this product?")) return;
-    try {
-      await actor.deleteProduct(id);
-      await queryClient.invalidateQueries({ queryKey: ["products"] });
-      toast.success("Product deleted");
-    } catch {
-      toast.error("Failed to delete product");
-    }
+    const updated = products.filter((p) => p.id !== id);
+    saveLocalProducts(updated);
+    setProducts(updated);
+    toast.success("Product deleted");
   }
 
   const dialogOpen = showAddDialog || !!editProduct;
@@ -201,27 +284,38 @@ function ProductsTab() {
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground font-mono">
           {products.length} product{products.length !== 1 ? "s" : ""}
+          <span className="ml-2 text-xs text-primary">(saved locally)</span>
         </p>
-        <Button onClick={openAdd} size="sm" className="font-mono">
+        <Button
+          onClick={openAdd}
+          size="sm"
+          className="font-mono"
+          data-ocid="products.open_modal_button"
+        >
           + Add Product
         </Button>
       </div>
 
       <Card>
         <CardContent className="p-0">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : products.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
+          {products.length === 0 ? (
+            <div
+              className="text-center py-12 text-muted-foreground"
+              data-ocid="products.empty_state"
+            >
               <ShoppingBag className="w-10 h-10 mx-auto mb-3 opacity-30" />
               <p className="font-mono text-sm">No products yet</p>
+              <p className="font-mono text-xs mt-1 opacity-60">
+                Click + Add Product to get started
+              </p>
             </div>
           ) : (
-            <Table>
+            <Table data-ocid="products.table">
               <TableHeader>
                 <TableRow>
+                  <TableHead className="font-mono text-xs uppercase w-12">
+                    Img
+                  </TableHead>
                   <TableHead className="font-mono text-xs uppercase">
                     Name
                   </TableHead>
@@ -237,41 +331,66 @@ function ProductsTab() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {products.map((product) => (
-                  <TableRow key={product.id.toString()}>
-                    <TableCell className="font-medium max-w-[180px] truncate">
-                      {product.name}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="font-mono text-xs">
-                        {product.category}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-mono text-sm">
-                      {formatPrice(product.price)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex gap-2 justify-end">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => openEdit(product)}
-                          className="text-xs"
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => handleDelete(product.id)}
-                          className="text-xs"
-                        >
-                          Delete
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {products.map((product, idx) => {
+                  const thumb =
+                    product.imageUrls.length > 0
+                      ? product.imageUrls[0]
+                      : undefined;
+                  return (
+                    <TableRow
+                      key={product.id}
+                      data-ocid={`products.item.${idx + 1}`}
+                    >
+                      <TableCell>
+                        <div className="w-10 h-10 rounded overflow-hidden bg-muted border border-border shrink-0">
+                          {thumb ? (
+                            <img
+                              src={thumb}
+                              alt={product.name}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                e.currentTarget.style.display = "none";
+                              }}
+                            />
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-medium max-w-[160px] truncate">
+                        {product.name}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="font-mono text-xs">
+                          {product.category}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="font-mono text-sm">
+                        {formatPriceCents(product.price)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex gap-2 justify-end">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openEdit(product)}
+                            className="text-xs"
+                            data-ocid="products.edit_button"
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => handleDelete(product.id)}
+                            className="text-xs"
+                            data-ocid="products.delete_button"
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}
@@ -283,7 +402,10 @@ function ProductsTab() {
         open={dialogOpen}
         onOpenChange={(open) => !open && closeDialogs()}
       >
-        <DialogContent className="bg-card border-border max-w-lg">
+        <DialogContent
+          className="bg-card border-border max-w-lg"
+          data-ocid="products.dialog"
+        >
           <DialogHeader>
             <DialogTitle className="font-mono">
               {editProduct ? "Edit Product" : "Add New Product"}
@@ -302,6 +424,7 @@ function ProductsTab() {
                 }
                 placeholder="e.g. Custom Business Cards"
                 className="bg-background/50"
+                data-ocid="products.input"
               />
             </div>
 
@@ -316,29 +439,51 @@ function ProductsTab() {
                 }
                 placeholder="Product description..."
                 className="bg-background/50 min-h-[80px]"
+                data-ocid="products.textarea"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 relative">
                 <Label className="font-mono text-xs uppercase text-muted-foreground">
                   Category *
                 </Label>
-                <Select
-                  value={form.category}
-                  onValueChange={(v) => setForm((f) => ({ ...f, category: v }))}
-                >
-                  <SelectTrigger className="bg-background/50">
-                    <SelectValue placeholder="Select..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PRODUCT_CATEGORIES.map((cat) => (
-                      <SelectItem key={cat} value={cat}>
+                <Input
+                  value={categoryInput}
+                  onChange={(e) => {
+                    setCategoryInput(e.target.value);
+                    setForm((f) => ({ ...f, category: e.target.value }));
+                    setShowCatSuggestions(true);
+                  }}
+                  onFocus={() => setShowCatSuggestions(true)}
+                  onBlur={() =>
+                    setTimeout(() => setShowCatSuggestions(false), 150)
+                  }
+                  placeholder="Select or type..."
+                  className="bg-background/50"
+                />
+                {showCatSuggestions && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                    {PRODUCT_CATEGORIES.filter(
+                      (c) =>
+                        !categoryInput ||
+                        c.toLowerCase().includes(categoryInput.toLowerCase()),
+                    ).map((cat) => (
+                      <button
+                        key={cat}
+                        type="button"
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors font-mono"
+                        onMouseDown={() => {
+                          setCategoryInput(cat);
+                          setForm((f) => ({ ...f, category: cat }));
+                          setShowCatSuggestions(false);
+                        }}
+                      >
                         {cat}
-                      </SelectItem>
+                      </button>
                     ))}
-                  </SelectContent>
-                </Select>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1.5">
@@ -355,19 +500,60 @@ function ProductsTab() {
                   }
                   placeholder="0.00"
                   className="bg-background/50 font-mono"
+                  data-ocid="products.input"
                 />
               </div>
             </div>
 
-            <ImageUploadField
-              label="Product Image"
-              value={form.imageUrl}
-              onChange={(v) => setForm((f) => ({ ...f, imageUrl: v }))}
+            <div className="space-y-1.5">
+              <Label className="font-mono text-xs uppercase text-muted-foreground">
+                Stock / Inventory
+              </Label>
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={form.stock}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, stock: e.target.value }))
+                }
+                placeholder="0"
+                className="bg-background/50 font-mono"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="font-mono text-xs uppercase text-muted-foreground">
+                Sizes / Variants (comma-separated, optional)
+              </Label>
+              <Input
+                value={form.sizesInput}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, sizesInput: e.target.value }))
+                }
+                placeholder="e.g. iPhone 13, iPhone 14, iPhone 15 Pro — or S, M, L, XL"
+                className="bg-background/50"
+                data-ocid="products.input"
+              />
+              <p className="text-xs text-muted-foreground font-mono">
+                Leave blank if this product has no size options
+              </p>
+            </div>
+
+            <MultiImageUploadField
+              label="Product Images"
+              values={form.imageUrls}
+              onChange={(urls) => setForm((f) => ({ ...f, imageUrls: urls }))}
+              maxImages={8}
             />
           </div>
 
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={closeDialogs}>
+            <Button
+              variant="outline"
+              onClick={closeDialogs}
+              data-ocid="products.cancel_button"
+            >
               Cancel
             </Button>
             <Button
@@ -375,6 +561,7 @@ function ProductsTab() {
               disabled={
                 isSubmitting || !form.name || !form.category || !form.price
               }
+              data-ocid="products.save_button"
             >
               {isSubmitting ? (
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />
@@ -388,15 +575,15 @@ function ProductsTab() {
   );
 }
 
-// ─── Portfolio Tab ─────────────────────────────────────────────────────────────
+// ─── Portfolio Tab (localStorage-backed) ──────────────────────────────────────
 
 function PortfolioTab() {
-  const { actor } = useActor();
-  const queryClient = useQueryClient();
-  const { data: items = [], isLoading } = useGetAllPortfolioItems();
+  const [items, setItems] = useState<LocalPortfolioItem[]>(() =>
+    loadLocalPortfolio(),
+  );
 
   const [showAddDialog, setShowAddDialog] = useState(false);
-  const [editItem, setEditItem] = useState<PortfolioItem | null>(null);
+  const [editItem, setEditItem] = useState<LocalPortfolioItem | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const emptyForm = {
@@ -413,7 +600,7 @@ function PortfolioTab() {
     setShowAddDialog(true);
   }
 
-  function openEdit(item: PortfolioItem) {
+  function openEdit(item: LocalPortfolioItem) {
     setForm({
       title: item.title,
       description: item.description,
@@ -430,49 +617,56 @@ function PortfolioTab() {
     setForm(emptyForm);
   }
 
-  async function handleSave() {
-    if (!actor || !form.title || !form.category) return;
+  function handleSave() {
+    if (!form.title || !form.category) return;
     setIsSubmitting(true);
     try {
       if (editItem) {
-        await actor.updatePortfolioItem(
-          editItem.id,
-          form.title,
-          form.description,
-          form.category,
-          form.imageUrl,
-          form.clientName,
+        const updated = items.map((i) =>
+          i.id === editItem.id
+            ? {
+                ...i,
+                title: form.title,
+                description: form.description,
+                category: form.category,
+                imageUrl: form.imageUrl,
+                clientName: form.clientName,
+              }
+            : i,
         );
+        saveLocalPortfolio(updated);
+        setItems(updated);
         toast.success("Portfolio item updated");
       } else {
-        await actor.addPortfolioItem(
-          form.title,
-          form.description,
-          form.category,
-          form.imageUrl,
-          form.clientName,
-        );
+        const newItem: LocalPortfolioItem = {
+          id: Date.now().toString(),
+          title: form.title,
+          description: form.description,
+          category: form.category,
+          imageUrl: form.imageUrl,
+          clientName: form.clientName,
+        };
+        const updated = [...items, newItem];
+        saveLocalPortfolio(updated);
+        setItems(updated);
         toast.success("Portfolio item added");
       }
-      await queryClient.invalidateQueries({ queryKey: ["portfolio"] });
       closeDialogs();
-    } catch {
-      toast.error("Failed to save portfolio item");
+    } catch (err) {
+      toast.error(
+        `Failed to save: ${err instanceof Error ? err.message : "Unknown error"}`,
+      );
     } finally {
       setIsSubmitting(false);
     }
   }
 
-  async function handleDelete(id: bigint) {
-    if (!actor) return;
+  function handleDelete(id: string) {
     if (!confirm("Delete this portfolio item?")) return;
-    try {
-      await actor.deletePortfolioItem(id);
-      await queryClient.invalidateQueries({ queryKey: ["portfolio"] });
-      toast.success("Portfolio item deleted");
-    } catch {
-      toast.error("Failed to delete portfolio item");
-    }
+    const updated = items.filter((i) => i.id !== id);
+    saveLocalPortfolio(updated);
+    setItems(updated);
+    toast.success("Portfolio item deleted");
   }
 
   const dialogOpen = showAddDialog || !!editItem;
@@ -482,25 +676,33 @@ function PortfolioTab() {
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground font-mono">
           {items.length} item{items.length !== 1 ? "s" : ""}
+          <span className="ml-2 text-xs text-primary">(saved locally)</span>
         </p>
-        <Button onClick={openAdd} size="sm" className="font-mono">
+        <Button
+          onClick={openAdd}
+          size="sm"
+          className="font-mono"
+          data-ocid="portfolio.open_modal_button"
+        >
           + Add Portfolio Item
         </Button>
       </div>
 
       <Card>
         <CardContent className="p-0">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : items.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
+          {items.length === 0 ? (
+            <div
+              className="text-center py-12 text-muted-foreground"
+              data-ocid="portfolio.empty_state"
+            >
               <Palette className="w-10 h-10 mx-auto mb-3 opacity-30" />
               <p className="font-mono text-sm">No portfolio items yet</p>
+              <p className="font-mono text-xs mt-1 opacity-60">
+                Click + Add Portfolio Item to get started
+              </p>
             </div>
           ) : (
-            <Table>
+            <Table data-ocid="portfolio.table">
               <TableHeader>
                 <TableRow>
                   <TableHead className="font-mono text-xs uppercase">
@@ -518,8 +720,11 @@ function PortfolioTab() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {items.map((item) => (
-                  <TableRow key={item.id.toString()}>
+                {items.map((item, idx) => (
+                  <TableRow
+                    key={item.id}
+                    data-ocid={`portfolio.item.${idx + 1}`}
+                  >
                     <TableCell className="font-medium max-w-[180px] truncate">
                       {item.title}
                     </TableCell>
@@ -538,6 +743,7 @@ function PortfolioTab() {
                           variant="outline"
                           onClick={() => openEdit(item)}
                           className="text-xs"
+                          data-ocid="portfolio.edit_button"
                         >
                           Edit
                         </Button>
@@ -546,6 +752,7 @@ function PortfolioTab() {
                           variant="destructive"
                           onClick={() => handleDelete(item.id)}
                           className="text-xs"
+                          data-ocid="portfolio.delete_button"
                         >
                           Delete
                         </Button>
@@ -564,7 +771,10 @@ function PortfolioTab() {
         open={dialogOpen}
         onOpenChange={(open) => !open && closeDialogs()}
       >
-        <DialogContent className="bg-card border-border max-w-lg">
+        <DialogContent
+          className="bg-card border-border max-w-lg"
+          data-ocid="portfolio.dialog"
+        >
           <DialogHeader>
             <DialogTitle className="font-mono">
               {editItem ? "Edit Portfolio Item" : "Add Portfolio Item"}
@@ -583,6 +793,7 @@ function PortfolioTab() {
                 }
                 placeholder="e.g. Retro Sports Logo Design"
                 className="bg-background/50"
+                data-ocid="portfolio.input"
               />
             </div>
 
@@ -597,6 +808,7 @@ function PortfolioTab() {
                 }
                 placeholder="Project description..."
                 className="bg-background/50 min-h-[80px]"
+                data-ocid="portfolio.textarea"
               />
             </div>
 
@@ -645,12 +857,17 @@ function PortfolioTab() {
           </div>
 
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={closeDialogs}>
+            <Button
+              variant="outline"
+              onClick={closeDialogs}
+              data-ocid="portfolio.cancel_button"
+            >
               Cancel
             </Button>
             <Button
               onClick={handleSave}
               disabled={isSubmitting || !form.title || !form.category}
+              data-ocid="portfolio.save_button"
             >
               {isSubmitting ? (
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />
@@ -682,8 +899,9 @@ function getOrderStatusClass(status: string) {
 }
 
 function OrdersTab() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
   const { data: orders = [], isLoading } = useGetAllOrders();
-  const updateStatus = useUpdateOrderStatus();
   const [trackingInputs, setTrackingInputs] = useState<Record<string, string>>(
     {},
   );
@@ -694,14 +912,37 @@ function OrdersTab() {
     tracking?: string,
   ) {
     try {
-      await updateStatus.mutateAsync({
-        id: order.id,
-        status,
-        trackingNumber: tracking ?? order.trackingNumber ?? "",
-      });
-      toast.success(`Order #${order.id} updated`);
+      if (actor) {
+        await actor.updateOrderStatus(
+          order.id,
+          status,
+          tracking ?? order.trackingNumber ?? "",
+        );
+        await queryClient.invalidateQueries({ queryKey: ["orders"] });
+        toast.success(`Order #${order.id} updated`);
+      } else {
+        // Save locally if no actor
+        const localStatuses = JSON.parse(
+          localStorage.getItem("megatrx_order_status") ?? "{}",
+        ) as Record<string, string>;
+        localStatuses[order.id.toString()] = status;
+        localStorage.setItem(
+          "megatrx_order_status",
+          JSON.stringify(localStatuses),
+        );
+        toast.success("Order status saved locally");
+      }
     } catch {
-      toast.error("Failed to update order");
+      // Backend call failed — save locally
+      const localStatuses = JSON.parse(
+        localStorage.getItem("megatrx_order_status") ?? "{}",
+      ) as Record<string, string>;
+      localStatuses[order.id.toString()] = status;
+      localStorage.setItem(
+        "megatrx_order_status",
+        JSON.stringify(localStatuses),
+      );
+      toast.success("Order status saved locally");
     }
   }
 
@@ -721,20 +962,30 @@ function OrdersTab() {
       </p>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-12">
+        <div
+          className="flex items-center justify-center py-12"
+          data-ocid="orders.loading_state"
+        >
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
         </div>
       ) : orders.length === 0 ? (
         <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
+          <CardContent
+            className="py-12 text-center text-muted-foreground"
+            data-ocid="orders.empty_state"
+          >
             <ClipboardList className="w-10 h-10 mx-auto mb-3 opacity-30" />
             <p className="font-mono text-sm">No orders yet</p>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
-          {orders.map((order: Order) => (
-            <Card key={order.id.toString()} className="border-border">
+          {orders.map((order: Order, idx) => (
+            <Card
+              key={order.id.toString()}
+              className="border-border"
+              data-ocid={`orders.item.${idx + 1}`}
+            >
               <CardContent className="p-4 sm:p-5">
                 <div className="flex flex-col gap-3">
                   {/* Header row */}
@@ -785,13 +1036,14 @@ function OrdersTab() {
                           [order.id.toString()]: e.target.value,
                         }))
                       }
+                      data-ocid="orders.input"
                     />
                     <Button
                       size="sm"
                       variant="outline"
                       className="h-8 text-xs gap-1"
                       onClick={() => handleMarkShipped(order)}
-                      disabled={updateStatus.isPending}
+                      data-ocid="orders.primary_button"
                     >
                       <Truck className="w-3 h-3" />
                       Mark Shipped
@@ -800,7 +1052,10 @@ function OrdersTab() {
                       value={order.status || "processing"}
                       onValueChange={(v) => handleUpdateStatus(order, v)}
                     >
-                      <SelectTrigger className="h-8 text-xs w-[130px] bg-background/50">
+                      <SelectTrigger
+                        className="h-8 text-xs w-[130px] bg-background/50"
+                        data-ocid="orders.select"
+                      >
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -815,6 +1070,238 @@ function OrdersTab() {
               </CardContent>
             </Card>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Chat Sessions Tab ────────────────────────────────────────────────────────
+
+function ChatSessionsTab() {
+  const { data: requests = [], isLoading } = useGetAllCustomDesignRequests();
+
+  // Filter only chat escalations
+  const chatSessions = requests.filter((r) => r.chatEscalation);
+
+  // Load saved replies from localStorage
+  const [replies, setReplies] = useState<Record<string, string>>(() => {
+    try {
+      const raw = localStorage.getItem("megatrx_chat_replies");
+      return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const [draftReplies, setDraftReplies] = useState<Record<string, string>>({});
+
+  function saveReply(id: string) {
+    const text = draftReplies[id] ?? "";
+    const updated = { ...replies, [id]: text };
+    localStorage.setItem("megatrx_chat_replies", JSON.stringify(updated));
+    setReplies(updated);
+    toast.success("Reply saved");
+  }
+
+  function getStatusColor(status: string) {
+    switch (status.toLowerCase()) {
+      case "pending":
+        return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
+      case "in-progress":
+        return "bg-blue-500/20 text-blue-400 border-blue-500/30";
+      case "completed":
+        return "bg-green-500/20 text-green-400 border-green-500/30";
+      default:
+        return "bg-muted text-muted-foreground border-border";
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <p className="text-sm text-muted-foreground font-mono">
+          {chatSessions.length} chat escalation
+          {chatSessions.length !== 1 ? "s" : ""}
+        </p>
+        {chatSessions.filter((r) => r.status === "pending").length > 0 && (
+          <span className="text-xs font-mono bg-orange-500/20 text-orange-400 border border-orange-500/30 px-2 py-0.5 rounded">
+            {chatSessions.filter((r) => r.status === "pending").length} pending
+          </span>
+        )}
+      </div>
+
+      {isLoading ? (
+        <div
+          className="flex items-center justify-center py-12"
+          data-ocid="chat.loading_state"
+        >
+          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : chatSessions.length === 0 ? (
+        <Card data-ocid="chat.empty_state">
+          <CardContent className="py-16 text-center text-muted-foreground">
+            <MessageSquare className="w-10 h-10 mx-auto mb-3 opacity-30" />
+            <p className="font-mono text-sm">No chat escalations yet</p>
+            <p className="text-xs mt-2 opacity-60">
+              When customers click "Talk to a human" in the chat widget, their
+              requests will appear here.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {chatSessions.map((req, idx) => {
+            const idStr = req.id.toString();
+            const savedReply = replies[idStr];
+            const draftText = draftReplies[idStr] ?? savedReply ?? "";
+
+            return (
+              <Card
+                key={idStr}
+                className="border-orange-500/30"
+                data-ocid={`chat.item.${idx + 1}`}
+              >
+                <CardContent className="p-5 space-y-4">
+                  {/* Header */}
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="font-bold text-base">
+                          {req.customerName}
+                        </h4>
+                        <a
+                          href={`mailto:${req.email}`}
+                          className="text-sm text-primary underline underline-offset-2 font-mono hover:text-primary/80"
+                        >
+                          {req.email}
+                        </a>
+                        <span
+                          className={`text-[10px] font-mono border px-1.5 py-0.5 rounded uppercase tracking-wider ${getStatusColor(req.status)}`}
+                        >
+                          {req.status}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                        <span>{new Date(req.createdAt).toLocaleString()}</span>
+                        <span>•</span>
+                        <span>Product: {req.productType}</span>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 text-xs font-mono"
+                        onClick={() => {
+                          const subject = encodeURIComponent(
+                            "Re: Your MEGATRX Request",
+                          );
+                          const body = encodeURIComponent(
+                            `Hi ${req.customerName},\n\nThank you for reaching out to MEGATRX!\n\n`,
+                          );
+                          window.open(
+                            `mailto:${req.email}?subject=${subject}&body=${body}`,
+                          );
+                        }}
+                        data-ocid="chat.primary_button"
+                      >
+                        <Mail className="w-3.5 h-3.5" />
+                        Send Email
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Chat Transcript */}
+                  <div className="bg-muted/40 border border-border rounded-md p-3">
+                    <p className="text-xs font-mono uppercase tracking-wider text-muted-foreground mb-2">
+                      Chat Transcript
+                    </p>
+                    <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">
+                      {req.description || "No transcript available."}
+                    </p>
+                  </div>
+
+                  {/* File attachments */}
+                  {req.fileUrls.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {req.fileUrls.map((file) => (
+                        <span
+                          key={`${idStr}-${file}`}
+                          className="inline-flex items-center gap-1 text-xs font-mono bg-muted/50 border border-border rounded px-2 py-0.5"
+                        >
+                          <Paperclip className="w-3 h-3 text-muted-foreground" />
+                          {file}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Saved reply display */}
+                  {savedReply && (
+                    <div className="bg-primary/10 border border-primary/20 rounded-md p-3">
+                      <p className="text-xs font-mono uppercase tracking-wider text-primary mb-1">
+                        Your Saved Reply
+                      </p>
+                      <p className="text-sm text-foreground whitespace-pre-wrap">
+                        {savedReply}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Quick reply */}
+                  <div className="space-y-2">
+                    <Label className="font-mono text-xs uppercase text-muted-foreground">
+                      Quick Reply
+                    </Label>
+                    <Textarea
+                      value={draftText}
+                      onChange={(e) =>
+                        setDraftReplies((prev) => ({
+                          ...prev,
+                          [idStr]: e.target.value,
+                        }))
+                      }
+                      placeholder="Type your reply here..."
+                      className="bg-background/50 min-h-[80px] text-sm resize-none"
+                      data-ocid="chat.textarea"
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => saveReply(idStr)}
+                        className="gap-1.5 font-mono text-xs"
+                        data-ocid="chat.save_button"
+                      >
+                        Save Reply
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          const subject = encodeURIComponent(
+                            "Re: Your MEGATRX Request",
+                          );
+                          const body = encodeURIComponent(
+                            draftText ||
+                              `Hi ${req.customerName},\n\nThank you for reaching out to MEGATRX!\n\n`,
+                          );
+                          window.open(
+                            `mailto:${req.email}?subject=${subject}&body=${body}`,
+                          );
+                        }}
+                        className="gap-1.5 font-mono text-xs"
+                        data-ocid="chat.primary_button"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        Reply via Email
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
@@ -868,283 +1355,6 @@ function CampaignsTab() {
           )}
         </CardContent>
       </Card>
-    </div>
-  );
-}
-
-// ─── Content Tab ──────────────────────────────────────────────────────────────
-
-function ContentTab() {
-  const { actor } = useActor();
-  const queryClient = useQueryClient();
-  const { data: aboutUs = "", isLoading: loadingAbout } = useGetAboutUs();
-  const { data: shippingInfo = "", isLoading: loadingShipping } =
-    useGetShippingInfo();
-
-  const [aboutText, setAboutText] = useState("");
-  const [shippingText, setShippingText] = useState("");
-  const [savingAbout, setSavingAbout] = useState(false);
-  const [savingShipping, setSavingShipping] = useState(false);
-
-  // Sync fetched data into local state
-  useEffect(() => {
-    if (aboutUs) setAboutText(aboutUs);
-  }, [aboutUs]);
-
-  useEffect(() => {
-    if (shippingInfo) setShippingText(shippingInfo);
-  }, [shippingInfo]);
-
-  async function handleSaveAbout() {
-    if (!actor) return;
-    setSavingAbout(true);
-    try {
-      await actor.updateAboutUs(aboutText);
-      await queryClient.invalidateQueries({ queryKey: ["aboutUs"] });
-      toast.success("About Us updated");
-    } catch {
-      toast.error("Failed to save About Us");
-    } finally {
-      setSavingAbout(false);
-    }
-  }
-
-  async function handleSaveShipping() {
-    if (!actor) return;
-    setSavingShipping(true);
-    try {
-      await actor.updateShippingInfo(shippingText);
-      await queryClient.invalidateQueries({ queryKey: ["shippingInfo"] });
-      toast.success("Shipping Info updated");
-    } catch {
-      toast.error("Failed to save Shipping Info");
-    } finally {
-      setSavingShipping(false);
-    }
-  }
-
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* About Us */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-mono uppercase tracking-wider">
-            About Us
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {loadingAbout ? (
-            <div className="flex items-center gap-2 text-muted-foreground text-sm">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Loading...
-            </div>
-          ) : (
-            <Textarea
-              value={aboutText}
-              onChange={(e) => setAboutText(e.target.value)}
-              className="min-h-[200px] bg-background/50 text-sm"
-              placeholder="Write your About Us content here..."
-            />
-          )}
-          <Button
-            onClick={handleSaveAbout}
-            disabled={savingAbout || loadingAbout}
-            className="w-full font-mono"
-          >
-            {savingAbout ? (
-              <Loader2 className="w-4 h-4 animate-spin mr-2" />
-            ) : null}
-            Save About Us
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* Shipping Info */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-mono uppercase tracking-wider">
-            Shipping Info
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {loadingShipping ? (
-            <div className="flex items-center gap-2 text-muted-foreground text-sm">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Loading...
-            </div>
-          ) : (
-            <Textarea
-              value={shippingText}
-              onChange={(e) => setShippingText(e.target.value)}
-              className="min-h-[200px] bg-background/50 text-sm"
-              placeholder="Write your Shipping Info content here..."
-            />
-          )}
-          <Button
-            onClick={handleSaveShipping}
-            disabled={savingShipping || loadingShipping}
-            className="w-full font-mono"
-          >
-            {savingShipping ? (
-              <Loader2 className="w-4 h-4 animate-spin mr-2" />
-            ) : null}
-            Save Shipping Info
-          </Button>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-// ─── Design Requests Tab ──────────────────────────────────────────────────────
-
-function DesignRequestsTab() {
-  const { data: requests = [], isLoading } = useGetAllCustomDesignRequests();
-  const updateStatus = useUpdateCustomDesignRequestStatus();
-  const deleteRequest = useDeleteCustomDesignRequest();
-
-  function getStatusColor(status: string) {
-    switch (status.toLowerCase()) {
-      case "pending":
-        return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
-      case "in-progress":
-        return "bg-blue-500/20 text-blue-400 border-blue-500/30";
-      case "completed":
-        return "bg-green-500/20 text-green-400 border-green-500/30";
-      default:
-        return "bg-muted text-muted-foreground border-border";
-    }
-  }
-
-  async function handleStatusChange(
-    req: CustomDesignRequest,
-    newStatus: string,
-  ) {
-    try {
-      await updateStatus.mutateAsync({ id: req.id, status: newStatus });
-      toast.success("Status updated");
-    } catch {
-      toast.error("Failed to update status");
-    }
-  }
-
-  async function handleDelete(req: CustomDesignRequest) {
-    if (!confirm(`Delete design request from ${req.customerName}?`)) return;
-    try {
-      await deleteRequest.mutateAsync(req.id);
-      toast.success("Request deleted");
-    } catch {
-      toast.error("Failed to delete request");
-    }
-  }
-
-  return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted-foreground font-mono">
-        {requests.length} request{requests.length !== 1 ? "s" : ""} total
-      </p>
-
-      {isLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-        </div>
-      ) : requests.length === 0 ? (
-        <Card>
-          <CardContent className="py-16 text-center text-muted-foreground">
-            <PenTool className="w-10 h-10 mx-auto mb-3 opacity-30" />
-            <p className="font-mono text-sm">No design requests yet</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {requests.map((req) => (
-            <Card key={req.id.toString()} className="border-border">
-              <CardContent className="p-4 sm:p-5">
-                <div className="flex flex-col sm:flex-row sm:items-start gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <h4 className="font-bold text-sm truncate">
-                        {req.customerName}
-                      </h4>
-                      <span className="text-xs text-muted-foreground font-mono">
-                        {req.email}
-                      </span>
-                      {req.chatEscalation && (
-                        <span className="text-[10px] font-mono bg-orange-500/20 text-orange-400 border border-orange-500/30 px-1.5 py-0.5 rounded uppercase tracking-wider">
-                          Chat
-                        </span>
-                      )}
-                      <span
-                        className={`text-[10px] font-mono border px-1.5 py-0.5 rounded uppercase tracking-wider ${getStatusColor(req.status)}`}
-                      >
-                        {req.status}
-                      </span>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2 mb-2 text-xs text-muted-foreground">
-                      <span className="font-medium text-foreground">
-                        {req.productType}
-                      </span>
-                      <span>•</span>
-                      <span>
-                        {new Date(req.createdAt).toLocaleDateString()}
-                      </span>
-                      {req.colorPreferences && (
-                        <>
-                          <span>•</span>
-                          <span>Colors: {req.colorPreferences}</span>
-                        </>
-                      )}
-                    </div>
-
-                    <p className="text-sm text-muted-foreground line-clamp-2 mb-2">
-                      {req.description}
-                    </p>
-
-                    {req.fileUrls.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {req.fileUrls.map((file) => (
-                          <span
-                            key={`${req.id.toString()}-${file}`}
-                            className="inline-flex items-center gap-1 text-xs font-mono bg-muted/50 border border-border rounded px-2 py-0.5"
-                          >
-                            <Paperclip className="w-3 h-3 text-muted-foreground" />
-                            {file}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Select
-                      value={req.status}
-                      onValueChange={(v) => handleStatusChange(req, v)}
-                    >
-                      <SelectTrigger className="h-8 text-xs w-[130px] bg-background/50">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="pending">Pending</SelectItem>
-                        <SelectItem value="in-progress">In Progress</SelectItem>
-                        <SelectItem value="completed">Completed</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleDelete(req)}
-                      className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -1248,9 +1458,7 @@ function PaymentsTab() {
             <code className="text-xs bg-muted px-1 py-0.5 rounded font-mono">
               pk_test_
             </code>
-            ) to show a native Apple Pay or Google Pay button at checkout. This
-            key is <strong>safe</strong> to use in the browser — it is not your
-            secret key.
+            ) to show a native Apple Pay or Google Pay button at checkout.
           </p>
           <div className="space-y-2">
             <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
@@ -1261,40 +1469,17 @@ function PaymentsTab() {
               onChange={(e) => setStripePk(e.target.value)}
               placeholder="pk_live_..."
               className="bg-background/50 font-mono text-sm"
+              data-ocid="payments.input"
             />
-            <p className="text-xs text-muted-foreground">
-              Find it in{" "}
-              <a
-                href="https://dashboard.stripe.com/apikeys"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary underline underline-offset-2"
-              >
-                Stripe Dashboard → Developers → API keys
-              </a>
-              . Copy the "Publishable key" (NOT the secret key).
-            </p>
           </div>
           <Button
             onClick={handleSaveStripePk}
             disabled={stripePk.trim() === savedStripePk}
             className="font-mono"
+            data-ocid="payments.primary_button"
           >
             Enable Apple Pay / Google Pay
           </Button>
-          <div className="text-xs text-muted-foreground p-3 rounded-md bg-muted/40 border border-border space-y-1">
-            <p className="font-semibold text-foreground">
-              Requirements for Apple Pay:
-            </p>
-            <ul className="list-disc list-inside space-y-0.5">
-              <li>Customer must be on Safari on iPhone, iPad, or Mac</li>
-              <li>Customer must have a card saved in Apple Wallet</li>
-              <li>
-                Your Stripe account must have Apple Pay domain registered (done
-                automatically for sites served over HTTPS)
-              </li>
-            </ul>
-          </div>
         </CardContent>
       </Card>
 
@@ -1328,25 +1513,14 @@ function PaymentsTab() {
               onChange={(e) => setStripeLink(e.target.value)}
               placeholder="https://buy.stripe.com/..."
               className="bg-background/50 font-mono text-sm"
+              data-ocid="payments.input"
             />
-            <p className="text-xs text-muted-foreground">
-              Get this from{" "}
-              <a
-                href="https://stripe.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary underline underline-offset-2"
-              >
-                stripe.com
-              </a>{" "}
-              → Payment Links. Create one product called "MEGATRX Order" and
-              paste the link here.
-            </p>
           </div>
           <Button
             onClick={handleSaveStripe}
             disabled={stripeLink.trim() === savedStripeLink}
             className="font-mono"
+            data-ocid="payments.save_button"
           >
             Save Payment Link
           </Button>
@@ -1362,9 +1536,6 @@ function PaymentsTab() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Select your payout method
-          </p>
           <div className="space-y-3">
             {PAYOUT_METHODS.map((method) => {
               const Icon = method.icon;
@@ -1379,6 +1550,7 @@ function PaymentsTab() {
                       ? "border-primary bg-primary/10"
                       : "border-border bg-card hover:border-border/80 hover:bg-muted/30"
                   }`}
+                  data-ocid="payments.toggle"
                 >
                   <div
                     className={`w-10 h-10 rounded-md flex items-center justify-center shrink-0 ${
@@ -1413,55 +1585,1455 @@ function PaymentsTab() {
               );
             })}
           </div>
-          <p className="text-xs text-muted-foreground p-3 rounded-md bg-muted/40 border border-border">
-            To set up payouts, log into your Stripe dashboard at{" "}
-            <a
-              href="https://dashboard.stripe.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary underline underline-offset-2"
-            >
-              dashboard.stripe.com
-            </a>{" "}
-            → Settings → Payouts and connect your bank account or debit card.
-          </p>
           <Button
             onClick={handleSavePayout}
             disabled={payoutMethod === savedPayoutMethod}
             className="font-mono"
+            data-ocid="payments.save_button"
           >
             Save Payout Method
           </Button>
         </CardContent>
       </Card>
+    </div>
+  );
+}
 
-      {/* Section C: Setup Guide */}
+// ─── Printify Tab ─────────────────────────────────────────────────────────────
+
+function PrintifyTab() {
+  const { data: settings, isLoading } = useGetIntegrationSettings();
+  const setSettings = useSetIntegrationSettings();
+
+  const [apiKey, setApiKey] = useState("");
+  const [shopId, setShopId] = useState("");
+  const [testStatus, setTestStatus] = useState<
+    "idle" | "testing" | "success" | "error"
+  >("idle");
+  const [importStatus, setImportStatus] = useState<string>("");
+  const [isImporting, setIsImporting] = useState(false);
+
+  useEffect(() => {
+    if (settings) {
+      setApiKey(settings.printifyApiKey || "");
+      setShopId(settings.printifyShopId || "");
+    }
+  }, [settings]);
+
+  async function handleSave() {
+    if (!settings) return;
+    try {
+      await setSettings.mutateAsync({
+        printifyApiKey: apiKey.trim(),
+        printifyShopId: shopId.trim(),
+        shopifyDomain: settings.shopifyDomain,
+        shopifyApiToken: settings.shopifyApiToken,
+      });
+      toast.success("Printify credentials saved");
+    } catch {
+      toast.error("Failed to save credentials");
+    }
+  }
+
+  async function handleTestConnection() {
+    if (!apiKey.trim()) {
+      toast.error("Enter your API key first");
+      return;
+    }
+    setTestStatus("testing");
+    try {
+      const res = await fetch("https://api.printify.com/v1/shops.json", {
+        headers: { Authorization: `Bearer ${apiKey.trim()}` },
+      });
+      if (res.ok) {
+        setTestStatus("success");
+        toast.success("Printify connection successful!");
+      } else {
+        setTestStatus("error");
+        toast.error("Connection failed. Check your API key.");
+      }
+    } catch {
+      setTestStatus("error");
+      toast.error(
+        "CORS error — Printify requires server-side calls. Save your key and contact support.",
+      );
+    }
+  }
+
+  async function handleImportProducts() {
+    if (!apiKey.trim() || !shopId.trim()) {
+      toast.error("Enter both API key and Shop ID first");
+      return;
+    }
+    setIsImporting(true);
+    setImportStatus("Fetching products from Printify...");
+    try {
+      const res = await fetch(
+        `https://api.printify.com/v1/shops/${shopId.trim()}/products.json`,
+        { headers: { Authorization: `Bearer ${apiKey.trim()}` } },
+      );
+      if (!res.ok) throw new Error("Failed to fetch");
+      const data = await res.json();
+      const products = (data.data ?? data ?? []) as Array<{
+        title?: string;
+        description?: string;
+        images?: Array<{ src: string }>;
+        variants?: Array<{ price?: number }>;
+        tags?: string[];
+      }>;
+      setImportStatus(`Importing ${products.length} products...`);
+      const existing = loadLocalProducts();
+      let imported = 0;
+      for (const p of products.slice(0, 20)) {
+        const images = (p.images ?? []).map((img) => img.src).slice(0, 4);
+        const price = p.variants?.[0]?.price ?? 2500;
+        const newProduct: LocalProduct = {
+          id: `printify_${Date.now()}_${imported}`,
+          name: p.title ?? "Printify Product",
+          description: p.description ?? "",
+          price: Math.round(price),
+          category: p.tags?.[0] ?? "Custom Merchandise",
+          imageUrls: images,
+          stock: 100,
+        };
+        existing.push(newProduct);
+        imported++;
+      }
+      saveLocalProducts(existing);
+      setImportStatus(`✓ Imported ${imported} products successfully!`);
+      toast.success(`Imported ${imported} products from Printify`);
+    } catch {
+      setImportStatus("");
+      toast.error(
+        "Printify import failed. CORS restrictions may prevent browser-side API calls.",
+      );
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
+  const isConnected = !!settings?.printifyApiKey;
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <Card className="border-primary/30">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base font-mono uppercase tracking-wider flex items-center gap-2">
+              <Printer className="w-4 h-4 text-primary" />
+              Printify Integration
+            </CardTitle>
+            {isConnected ? (
+              <span className="inline-flex items-center gap-1.5 text-xs font-mono px-2.5 py-1 rounded-full bg-green-500/15 text-green-400 border border-green-500/30">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Connected
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-xs font-mono px-2.5 py-1 rounded-full bg-muted text-muted-foreground border border-border">
+                Not Connected
+              </span>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {isLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground text-sm">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Loading...
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+                  Printify API Key
+                </Label>
+                <Input
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="Enter your Printify API key..."
+                  type="password"
+                  className="bg-background/50 font-mono text-sm"
+                  data-ocid="printify.input"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Find at{" "}
+                  <a
+                    href="https://printify.com/app/account/connections"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline underline-offset-2"
+                  >
+                    Printify → Account → Connections → API
+                  </a>
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+                  Printify Shop ID
+                </Label>
+                <Input
+                  value={shopId}
+                  onChange={(e) => setShopId(e.target.value)}
+                  placeholder="e.g. 12345678"
+                  className="bg-background/50 font-mono text-sm"
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  onClick={handleSave}
+                  disabled={setSettings.isPending}
+                  className="font-mono"
+                  data-ocid="printify.save_button"
+                >
+                  {setSettings.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : null}
+                  Save Credentials
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleTestConnection}
+                  disabled={testStatus === "testing" || !apiKey.trim()}
+                  className="font-mono gap-2"
+                  data-ocid="printify.secondary_button"
+                >
+                  {testStatus === "testing" ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : testStatus === "success" ? (
+                    <CheckCircle2 className="w-4 h-4 text-green-400" />
+                  ) : (
+                    <Link2 className="w-4 h-4" />
+                  )}
+                  Test Connection
+                </Button>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-mono uppercase tracking-wider flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-primary" />
-            Setup Guide
+            <Package className="w-4 h-4 text-primary" />
+            Import Products from Printify
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <ol className="space-y-3">
-            {[
-              "Create a free Stripe account at stripe.com",
-              "Go to Stripe Dashboard → Developers → API keys, copy your Publishable Key (pk_live_...)",
-              "Paste the Publishable Key in the Apple Pay & Google Pay section above and click Enable",
-              "Go to Payment Links and create a new link, name it 'MEGATRX Order'",
-              "Paste the Payment Link URL in the Card Checkout section and click Save",
-              "Connect your bank account in Stripe dashboard → Settings → Payouts",
-              "Select your payout method above and click Save",
-            ].map((step, i) => (
-              <li key={step} className="flex items-start gap-3 text-sm">
-                <span className="w-6 h-6 rounded-full bg-primary/20 text-primary text-xs font-mono font-bold flex items-center justify-center shrink-0 mt-0.5">
-                  {i + 1}
-                </span>
-                <span className="text-muted-foreground">{step}</span>
-              </li>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Import products directly from your Printify shop into your MEGATRX
+            catalog. Imported products are saved locally and appear in your
+            shop.
+          </p>
+          <Button
+            onClick={handleImportProducts}
+            disabled={isImporting || !apiKey.trim() || !shopId.trim()}
+            className="font-mono gap-2"
+            data-ocid="printify.primary_button"
+          >
+            {isImporting ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Package className="w-4 h-4" />
+            )}
+            {isImporting ? "Importing..." : "Import Products from Printify"}
+          </Button>
+          {importStatus && (
+            <p
+              className="text-sm font-mono text-green-400 bg-green-500/10 border border-green-500/20 rounded p-3"
+              data-ocid="printify.success_state"
+            >
+              {importStatus}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Printful Tab (NEW) ───────────────────────────────────────────────────────
+
+function PrintfulTab() {
+  const [apiKey, setApiKey] = useState(
+    () => localStorage.getItem("megatrx_printful_key") ?? "",
+  );
+  const [shopId, setShopId] = useState(
+    () => localStorage.getItem("megatrx_printful_shopid") ?? "",
+  );
+  const [testStatus, setTestStatus] = useState<
+    "idle" | "testing" | "success" | "error"
+  >("idle");
+  const [importStatus, setImportStatus] = useState<string>("");
+  const [isImporting, setIsImporting] = useState(false);
+
+  function handleSave() {
+    localStorage.setItem("megatrx_printful_key", apiKey.trim());
+    localStorage.setItem("megatrx_printful_shopid", shopId.trim());
+    toast.success("Printful credentials saved");
+  }
+
+  async function handleTestConnection() {
+    if (!apiKey.trim()) {
+      toast.error("Enter your API key first");
+      return;
+    }
+    setTestStatus("testing");
+    try {
+      const res = await fetch("https://api.printful.com/store", {
+        headers: { Authorization: `Bearer ${apiKey.trim()}` },
+      });
+      if (res.ok) {
+        setTestStatus("success");
+        toast.success("Printful connection successful!");
+      } else {
+        setTestStatus("error");
+        toast.error("Connection failed. Check your API key.");
+      }
+    } catch {
+      setTestStatus("error");
+      toast.error(
+        "CORS error — Printful API may require server-side calls. Save your key and contact support.",
+      );
+    }
+  }
+
+  async function handleImportProducts() {
+    if (!apiKey.trim()) {
+      toast.error("Enter your API key first");
+      return;
+    }
+    setIsImporting(true);
+    setImportStatus("Fetching products from Printful...");
+    try {
+      const url = shopId.trim()
+        ? `https://api.printful.com/store/products?store_id=${shopId.trim()}`
+        : "https://api.printful.com/store/products";
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${apiKey.trim()}` },
+      });
+      if (!res.ok) throw new Error("Failed to fetch");
+      const data = await res.json();
+      const products = (data.result ?? []) as Array<{
+        name?: string;
+        thumbnail_url?: string;
+        variants?: Array<{ retail_price?: string }>;
+      }>;
+      setImportStatus(`Importing ${products.length} products...`);
+      const existing = loadLocalProducts();
+      let imported = 0;
+      for (const p of products.slice(0, 20)) {
+        const priceStr = p.variants?.[0]?.retail_price ?? "25.00";
+        const price = Math.round(Number.parseFloat(priceStr) * 100);
+        const newProduct: LocalProduct = {
+          id: `printful_${Date.now()}_${imported}`,
+          name: p.name ?? "Printful Product",
+          description: "",
+          price: price > 0 ? price : 2500,
+          category: "Custom Merchandise",
+          imageUrls: p.thumbnail_url ? [p.thumbnail_url] : [],
+          stock: 100,
+        };
+        existing.push(newProduct);
+        imported++;
+      }
+      saveLocalProducts(existing);
+      setImportStatus(`✓ Imported ${imported} products successfully!`);
+      toast.success(`Imported ${imported} products from Printful`);
+    } catch {
+      setImportStatus("");
+      toast.error(
+        "Printful import failed. CORS restrictions may prevent browser-side API calls.",
+      );
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
+  const isConnected = !!localStorage.getItem("megatrx_printful_key");
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <Card className="border-primary/30">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base font-mono uppercase tracking-wider flex items-center gap-2">
+              <Printer className="w-4 h-4 text-primary" />
+              Printful Integration
+            </CardTitle>
+            {isConnected ? (
+              <span className="inline-flex items-center gap-1.5 text-xs font-mono px-2.5 py-1 rounded-full bg-green-500/15 text-green-400 border border-green-500/30">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Connected
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-xs font-mono px-2.5 py-1 rounded-full bg-muted text-muted-foreground border border-border">
+                Not Connected
+              </span>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+              Printful API Key
+            </Label>
+            <Input
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="Enter your Printful API key..."
+              type="password"
+              className="bg-background/50 font-mono text-sm"
+              data-ocid="printful.input"
+            />
+            <p className="text-xs text-muted-foreground">
+              Find at{" "}
+              <a
+                href="https://www.printful.com/dashboard/settings/stores"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline underline-offset-2"
+              >
+                Printful → Dashboard → Settings → API
+              </a>
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+              Store ID (optional)
+            </Label>
+            <Input
+              value={shopId}
+              onChange={(e) => setShopId(e.target.value)}
+              placeholder="e.g. 123456 (leave blank for default store)"
+              className="bg-background/50 font-mono text-sm"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={handleSave}
+              className="font-mono"
+              data-ocid="printful.save_button"
+            >
+              Save Credentials
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleTestConnection}
+              disabled={testStatus === "testing" || !apiKey.trim()}
+              className="font-mono gap-2"
+              data-ocid="printful.secondary_button"
+            >
+              {testStatus === "testing" ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : testStatus === "success" ? (
+                <CheckCircle2 className="w-4 h-4 text-green-400" />
+              ) : (
+                <Link2 className="w-4 h-4" />
+              )}
+              Test Connection
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-mono uppercase tracking-wider flex items-center gap-2">
+            <Package className="w-4 h-4 text-primary" />
+            Import Products from Printful
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Import products directly from your Printful catalog into your
+            MEGATRX shop. Products are saved locally and displayed to customers.
+          </p>
+          <Button
+            onClick={handleImportProducts}
+            disabled={isImporting || !apiKey.trim()}
+            className="font-mono gap-2"
+            data-ocid="printful.primary_button"
+          >
+            {isImporting ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Package className="w-4 h-4" />
+            )}
+            {isImporting ? "Importing..." : "Import Products from Printful"}
+          </Button>
+          {importStatus && (
+            <p
+              className="text-sm font-mono text-green-400 bg-green-500/10 border border-green-500/20 rounded p-3"
+              data-ocid="printful.success_state"
+            >
+              {importStatus}
+            </p>
+          )}
+          <div className="p-3 rounded-md bg-muted/40 border border-border text-xs text-muted-foreground space-y-1">
+            <p className="font-semibold text-foreground">Note about CORS:</p>
+            <p>
+              Browser security may block direct Printful API calls. If import
+              fails, save your API key and reach out for server-side sync
+              assistance.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Integrations Tab (Shopify) ───────────────────────────────────────────────
+
+function IntegrationsTab() {
+  const { data: settings, isLoading } = useGetIntegrationSettings();
+  const setSettings = useSetIntegrationSettings();
+
+  const [shopifyDomain, setShopifyDomain] = useState("");
+  const [shopifyToken, setShopifyToken] = useState("");
+
+  useEffect(() => {
+    if (settings) {
+      setShopifyDomain(settings.shopifyDomain || "");
+      setShopifyToken(settings.shopifyApiToken || "");
+    }
+  }, [settings]);
+
+  async function handleSaveShopify() {
+    if (!settings) return;
+    try {
+      await setSettings.mutateAsync({
+        printifyApiKey: settings.printifyApiKey,
+        printifyShopId: settings.printifyShopId,
+        shopifyDomain: shopifyDomain.trim(),
+        shopifyApiToken: shopifyToken.trim(),
+      });
+      toast.success("Shopify credentials saved");
+    } catch {
+      toast.error("Failed to save credentials");
+    }
+  }
+
+  const isConnected = !!(settings?.shopifyDomain && settings?.shopifyApiToken);
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <Card className="border-primary/30">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base font-mono uppercase tracking-wider flex items-center gap-2">
+              <Store className="w-4 h-4 text-primary" />
+              Shopify Integration
+            </CardTitle>
+            {isConnected ? (
+              <span className="inline-flex items-center gap-1.5 text-xs font-mono px-2.5 py-1 rounded-full bg-green-500/15 text-green-400 border border-green-500/30">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Connected
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-xs font-mono px-2.5 py-1 rounded-full bg-muted text-muted-foreground border border-border">
+                Not Connected
+              </span>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {isLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground text-sm">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Loading...
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+                  Shopify Store Domain
+                </Label>
+                <Input
+                  value={shopifyDomain}
+                  onChange={(e) => setShopifyDomain(e.target.value)}
+                  placeholder="mystore.myshopify.com"
+                  className="bg-background/50 font-mono text-sm"
+                  data-ocid="shopify.input"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+                  Shopify Admin API Access Token
+                </Label>
+                <Input
+                  value={shopifyToken}
+                  onChange={(e) => setShopifyToken(e.target.value)}
+                  placeholder="shpat_..."
+                  type="password"
+                  className="bg-background/50 font-mono text-sm"
+                />
+              </div>
+              <Button
+                onClick={handleSaveShopify}
+                disabled={
+                  setSettings.isPending ||
+                  !shopifyDomain.trim() ||
+                  !shopifyToken.trim()
+                }
+                className="font-mono"
+                data-ocid="shopify.save_button"
+              >
+                {setSettings.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : null}
+                Save Shopify Credentials
+              </Button>
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Content Tab (localStorage-backed) ────────────────────────────────────────
+
+const SITE_TEXT_FIELDS = [
+  {
+    key: "hero_headline",
+    label: "Home Page Headline",
+    default: "Custom Designs That Stand Out",
+    multiline: false,
+  },
+  {
+    key: "hero_subheadline",
+    label: "Home Page Sub-Headline",
+    default:
+      "From business cards to custom apparel — MEGATRX brings your vision to life.",
+    multiline: true,
+  },
+  {
+    key: "home_cta",
+    label: "Main CTA Button Text",
+    default: "Shop Custom Designs",
+    multiline: false,
+  },
+  {
+    key: "about_heading",
+    label: "About Page Heading",
+    default: "About MEGATRX",
+    multiline: false,
+  },
+  {
+    key: "shop_heading",
+    label: "Shop Page Heading",
+    default: "Our Products",
+    multiline: false,
+  },
+  {
+    key: "footer_tagline",
+    label: "Footer Tagline",
+    default: "Graphic design excellence meets modern ecommerce.",
+    multiline: false,
+  },
+  {
+    key: "home_services_text",
+    label: "Services Section Text",
+    default:
+      "We specialize in bold, memorable designs for businesses and individuals.",
+    multiline: true,
+  },
+];
+
+function ContentTab() {
+  const [aboutText, setAboutText] = useState(
+    () => localStorage.getItem("megatrx_about") ?? "",
+  );
+  const [shippingText, setShippingText] = useState(
+    () => localStorage.getItem("megatrx_shipping") ?? "",
+  );
+  const [textValues, setTextValues] = useState<Record<string, string>>(() => {
+    try {
+      const raw = localStorage.getItem("megatrx_sitetexts");
+      return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [savingAbout, setSavingAbout] = useState(false);
+  const [savingShipping, setSavingShipping] = useState(false);
+  const [savingKeys, setSavingKeys] = useState<Record<string, boolean>>({});
+
+  function handleSaveAbout() {
+    setSavingAbout(true);
+    try {
+      localStorage.setItem("megatrx_about", aboutText);
+      toast.success("About Us updated");
+    } catch {
+      toast.error("Failed to save About Us");
+    } finally {
+      setSavingAbout(false);
+    }
+  }
+
+  function handleSaveShipping() {
+    setSavingShipping(true);
+    try {
+      localStorage.setItem("megatrx_shipping", shippingText);
+      toast.success("Shipping Info updated");
+    } catch {
+      toast.error("Failed to save Shipping Info");
+    } finally {
+      setSavingShipping(false);
+    }
+  }
+
+  function handleSaveSiteText(key: string) {
+    setSavingKeys((prev) => ({ ...prev, [key]: true }));
+    try {
+      const updated = { ...textValues };
+      localStorage.setItem("megatrx_sitetexts", JSON.stringify(updated));
+      toast.success("Text updated");
+    } catch {
+      toast.error("Failed to save text");
+    } finally {
+      setSavingKeys((prev) => ({ ...prev, [key]: false }));
+    }
+  }
+
+  function getTextValue(key: string): string {
+    return (
+      textValues[key] ??
+      SITE_TEXT_FIELDS.find((f) => f.key === key)?.default ??
+      ""
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      {/* Website Text Fields */}
+      <div>
+        <h2 className="text-base font-mono uppercase tracking-wider mb-4 flex items-center gap-2">
+          <FileText className="w-4 h-4 text-primary" />
+          Website Text
+        </h2>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {SITE_TEXT_FIELDS.map((field) => (
+            <Card key={field.key}>
+              <CardContent className="pt-4 space-y-2">
+                <Label className="font-mono text-xs uppercase text-muted-foreground">
+                  {field.label}
+                </Label>
+                {field.multiline ? (
+                  <Textarea
+                    value={getTextValue(field.key)}
+                    onChange={(e) =>
+                      setTextValues((prev) => ({
+                        ...prev,
+                        [field.key]: e.target.value,
+                      }))
+                    }
+                    className="bg-background/50 text-sm min-h-[80px]"
+                    placeholder={field.default}
+                    data-ocid="content.textarea"
+                  />
+                ) : (
+                  <Input
+                    value={getTextValue(field.key)}
+                    onChange={(e) =>
+                      setTextValues((prev) => ({
+                        ...prev,
+                        [field.key]: e.target.value,
+                      }))
+                    }
+                    className="bg-background/50 text-sm"
+                    placeholder={field.default}
+                    data-ocid="content.input"
+                  />
+                )}
+                <Button
+                  size="sm"
+                  onClick={() => handleSaveSiteText(field.key)}
+                  disabled={savingKeys[field.key]}
+                  className="w-full font-mono text-xs"
+                  data-ocid="content.save_button"
+                >
+                  {savingKeys[field.key] ? (
+                    <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                  ) : null}
+                  Save
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+
+      {/* About Us + Shipping Info */}
+      <div>
+        <h2 className="text-base font-mono uppercase tracking-wider mb-4 flex items-center gap-2">
+          <FileText className="w-4 h-4 text-primary" />
+          Pages Content
+        </h2>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-mono uppercase tracking-wider">
+                About Us
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Textarea
+                value={aboutText}
+                onChange={(e) => setAboutText(e.target.value)}
+                className="min-h-[200px] bg-background/50 text-sm"
+                placeholder="Write your About Us content here..."
+                data-ocid="content.textarea"
+              />
+              <Button
+                onClick={handleSaveAbout}
+                disabled={savingAbout}
+                className="w-full font-mono"
+                data-ocid="content.save_button"
+              >
+                {savingAbout ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : null}
+                Save About Us
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-mono uppercase tracking-wider">
+                Shipping Policy
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Textarea
+                value={shippingText}
+                onChange={(e) => setShippingText(e.target.value)}
+                className="min-h-[200px] bg-background/50 text-sm"
+                placeholder="Write your Shipping Policy content here..."
+                data-ocid="content.textarea"
+              />
+              <Button
+                onClick={handleSaveShipping}
+                disabled={savingShipping}
+                className="w-full font-mono"
+                data-ocid="content.save_button"
+              >
+                {savingShipping ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : null}
+                Save Shipping Policy
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Enhanced Design Requests Tab ────────────────────────────────────────────
+
+function DesignRequestsTabEnhanced() {
+  const { data: requests = [], isLoading } = useGetAllCustomDesignRequests();
+  const { data: humanCount = BigInt(0) } = useGetHumanRequestCount();
+  const updateStatus = useUpdateLocalDesignStatus();
+  const deleteRequest = useDeleteCustomDesignRequest();
+  const queryClient = useQueryClient();
+
+  // Sort: chat escalations first
+  const sorted = [...requests].sort((a, b) => {
+    if (a.chatEscalation && !b.chatEscalation) return -1;
+    if (!a.chatEscalation && b.chatEscalation) return 1;
+    return 0;
+  });
+
+  function getStatusColor(status: string) {
+    switch (status.toLowerCase()) {
+      case "pending":
+        return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
+      case "in-progress":
+        return "bg-blue-500/20 text-blue-400 border-blue-500/30";
+      case "completed":
+        return "bg-green-500/20 text-green-400 border-green-500/30";
+      default:
+        return "bg-muted text-muted-foreground border-border";
+    }
+  }
+
+  async function handleStatusChange(
+    req: CustomDesignRequest,
+    newStatus: string,
+  ) {
+    try {
+      await updateStatus(req.id, newStatus);
+      await queryClient.invalidateQueries({ queryKey: ["designRequests"] });
+      toast.success("Status updated");
+    } catch {
+      toast.success("Status saved locally");
+    }
+  }
+
+  async function handleDelete(req: CustomDesignRequest) {
+    if (!confirm(`Delete design request from ${req.customerName}?`)) return;
+    try {
+      await deleteRequest.mutateAsync(req.id);
+      toast.success("Request deleted");
+    } catch {
+      toast.error("Failed to delete request");
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Human escalation alert */}
+      {Number(humanCount) > 0 && (
+        <div
+          className="flex items-start gap-3 p-4 rounded-lg bg-orange-500/15 border border-orange-500/30"
+          data-ocid="designs.error_state"
+        >
+          <AlertTriangle className="w-5 h-5 text-orange-400 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold text-orange-400 text-sm">
+              {Number(humanCount)} chat escalation request
+              {Number(humanCount) !== 1 ? "s" : ""} waiting
+            </p>
+            <p className="text-xs text-orange-400/80 mt-0.5">
+              Customers clicked "Talk to a human". Check the Chat Sessions tab
+              to view and respond.
+            </p>
+          </div>
+        </div>
+      )}
+
+      <p className="text-sm text-muted-foreground font-mono">
+        {requests.length} request{requests.length !== 1 ? "s" : ""} total
+        {Number(humanCount) > 0 && (
+          <span className="ml-2 text-orange-400">
+            · {Number(humanCount)} chat escalation
+            {Number(humanCount) !== 1 ? "s" : ""}
+          </span>
+        )}
+      </p>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : requests.length === 0 ? (
+        <Card data-ocid="designs.empty_state">
+          <CardContent className="py-16 text-center text-muted-foreground">
+            <PenTool className="w-10 h-10 mx-auto mb-3 opacity-30" />
+            <p className="font-mono text-sm">No design requests yet</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {sorted.map((req, idx) => (
+            <Card
+              key={req.id.toString()}
+              className={`border-border ${req.chatEscalation ? "border-orange-500/30" : ""}`}
+              data-ocid={`designs.item.${idx + 1}`}
+            >
+              <CardContent className="p-4 sm:p-5">
+                <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <h4 className="font-bold text-sm truncate">
+                        {req.customerName}
+                      </h4>
+                      <span className="text-xs text-muted-foreground font-mono">
+                        {req.email}
+                      </span>
+                      {req.chatEscalation && (
+                        <span className="text-[10px] font-mono bg-orange-500/20 text-orange-400 border border-orange-500/30 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                          Chat Escalation
+                        </span>
+                      )}
+                      <span
+                        className={`text-[10px] font-mono border px-1.5 py-0.5 rounded uppercase tracking-wider ${getStatusColor(req.status)}`}
+                      >
+                        {req.status}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mb-2 text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">
+                        {req.productType}
+                      </span>
+                      <span>•</span>
+                      <span>
+                        {new Date(req.createdAt).toLocaleDateString()}
+                      </span>
+                      {req.colorPreferences && (
+                        <>
+                          <span>•</span>
+                          <span>Colors: {req.colorPreferences}</span>
+                        </>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground line-clamp-2 mb-2">
+                      {req.description}
+                    </p>
+                    {req.fileUrls.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {req.fileUrls.map((file) => (
+                          <span
+                            key={`${req.id.toString()}-${file}`}
+                            className="inline-flex items-center gap-1 text-xs font-mono bg-muted/50 border border-border rounded px-2 py-0.5"
+                          >
+                            <Paperclip className="w-3 h-3 text-muted-foreground" />
+                            {file}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Select
+                      value={req.status}
+                      onValueChange={(v) => handleStatusChange(req, v)}
+                    >
+                      <SelectTrigger
+                        className="h-8 text-xs w-[130px] bg-background/50"
+                        data-ocid="designs.select"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="in-progress">In Progress</SelectItem>
+                        <SelectItem value="completed">Completed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleDelete(req)}
+                      className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                      data-ocid="designs.delete_button"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Helper: update status locally when backend fails
+function useUpdateLocalDesignStatus() {
+  const { actor } = useActor();
+  return async (id: bigint, status: string) => {
+    if (actor) {
+      try {
+        await actor.updateCustomDesignRequestStatus(id, status);
+        return;
+      } catch {
+        // fall through to local
+      }
+    }
+    const local = JSON.parse(
+      localStorage.getItem("megatrx_design_statuses") ?? "{}",
+    ) as Record<string, string>;
+    local[id.toString()] = status;
+    localStorage.setItem("megatrx_design_statuses", JSON.stringify(local));
+  };
+}
+
+// ─── Settings Tab ─────────────────────────────────────────────────────────────
+
+function SettingsTab() {
+  const { data: savedEmail = "" } = useGetNotificationEmail();
+  const setNotificationEmail = useSetNotificationEmail();
+  const [email, setEmail] = useState("");
+
+  // Logo state
+  const [logoUrl, setLogoUrl] = useState(
+    () => localStorage.getItem("megatrx_logo") ?? "",
+  );
+
+  useEffect(() => {
+    if (savedEmail) setEmail(savedEmail);
+  }, [savedEmail]);
+
+  async function handleSaveEmail() {
+    try {
+      await setNotificationEmail.mutateAsync(email.trim());
+      toast.success("Notification email saved");
+    } catch {
+      localStorage.setItem("megatrx_notification_email", email.trim());
+      toast.success("Email saved locally");
+    }
+  }
+
+  function handleLogoChange(value: string) {
+    setLogoUrl(value);
+    if (value) {
+      localStorage.setItem("megatrx_logo", value);
+      toast.success("Logo saved — reload the page to see it in the header");
+    } else {
+      localStorage.removeItem("megatrx_logo");
+      toast.success("Logo removed");
+    }
+  }
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      {/* Logo Upload */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-mono uppercase tracking-wider flex items-center gap-2">
+            <Image className="w-4 h-4 text-primary" />
+            Site Logo
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Upload your logo here. It will appear in the navigation header and
+            chat widget across the entire website.
+          </p>
+          {logoUrl && (
+            <div className="flex items-center gap-3 p-3 bg-muted/40 border border-border rounded-md">
+              <img
+                src={logoUrl}
+                alt="Current logo"
+                className="h-12 w-auto object-contain"
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
+              />
+              <div>
+                <p className="text-xs font-mono text-green-400">✓ Logo saved</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Reload the page to see it in the header
+                </p>
+              </div>
+            </div>
+          )}
+          <ImageUploadField
+            label="Upload Logo"
+            value={logoUrl}
+            onChange={handleLogoChange}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Notification Email */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-mono uppercase tracking-wider flex items-center gap-2">
+            <Mail className="w-4 h-4 text-primary" />
+            Notification Email
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Enter your email address to receive notifications for new orders,
+            design requests, and chat escalations.
+          </p>
+          <div className="space-y-2">
+            <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+              Your Email Address
+            </Label>
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="your@email.com"
+              className="bg-background/50 font-mono text-sm"
+              data-ocid="settings.input"
+            />
+          </div>
+          <Button
+            onClick={handleSaveEmail}
+            disabled={setNotificationEmail.isPending || !email.trim()}
+            className="font-mono"
+            data-ocid="settings.save_button"
+          >
+            {setNotificationEmail.isPending ? (
+              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            ) : null}
+            Save Email
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-mono uppercase tracking-wider flex items-center gap-2">
+            <Settings className="w-4 h-4 text-primary" />
+            Admin Access
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Admin passphrase:{" "}
+            <code className="font-mono text-primary bg-muted px-1.5 py-0.5 rounded text-xs">
+              MEGATRX2024
+            </code>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Share this passphrase only with trusted staff members. Access the
+            admin dashboard at <code className="font-mono">/admin</code>.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ─── AI Assistant Tab ─────────────────────────────────────────────────────────
+
+interface AdminChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+}
+
+const SUGGESTED_QUESTIONS = [
+  "How many orders do I have?",
+  "Show me pending design requests",
+  "List customer emails",
+  "What's my best selling category?",
+  "Any chat escalations pending?",
+];
+
+async function getAdminAIResponse(
+  question: string,
+  orderCount: number,
+  designCount: number,
+  productCount: number,
+): Promise<string> {
+  const contextData = `Store summary: ${orderCount} orders, ${designCount} design requests, ${productCount} products.`;
+  const fullPrompt = `You are an AI assistant for the MEGATRX admin dashboard. ${contextData} Answer this admin question concisely: ${question}`;
+  const encodedPrompt = encodeURIComponent(fullPrompt);
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(`https://text.pollinations.ai/${encodedPrompt}`, {
+      method: "GET",
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (res.ok) {
+      const text = await res.text();
+      if (text && text.trim().length > 5) return text.trim();
+    }
+  } catch {
+    // fall through
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch("https://text.pollinations.ai/openai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "openai",
+        messages: [
+          {
+            role: "system",
+            content: `You are an admin AI for MEGATRX. ${contextData}`,
+          },
+          { role: "user", content: question },
+        ],
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (res.ok) {
+      const data = await res.json();
+      const text = data?.choices?.[0]?.message?.content || data?.text || "";
+      if (text && text.trim().length > 5) return text.trim();
+    }
+  } catch {
+    // fall through
+  }
+
+  // Local fallback answers
+  const lower = question.toLowerCase();
+  if (lower.includes("order")) {
+    return `You have ${orderCount} total orders. Check the Orders tab for details.`;
+  }
+  if (lower.includes("design") || lower.includes("request")) {
+    return `You have ${designCount} design requests. Check the Designs tab for details.`;
+  }
+  if (lower.includes("product")) {
+    return `You have ${productCount} products in your catalog.`;
+  }
+  return `Store summary: ${orderCount} orders, ${designCount} design requests, ${productCount} products. Check each tab for details.`;
+}
+
+function AIAssistantTab() {
+  const { data: orders = [] } = useGetAllOrders();
+  const { data: designRequests = [] } = useGetAllCustomDesignRequests();
+  const localProducts = loadLocalProducts();
+
+  const [messages, setMessages] = useState<AdminChatMessage[]>([
+    {
+      id: "welcome",
+      role: "assistant",
+      content:
+        "Hi! I'm your MEGATRX admin AI assistant. I have access to your store data — orders, customers, design requests, and products. Ask me anything!",
+    },
+  ]);
+  const [input, setInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  });
+
+  async function sendQuestion(question: string) {
+    if (!question.trim() || isLoading) return;
+    const userMsg: AdminChatMessage = {
+      id: Math.random().toString(36).slice(2),
+      role: "user",
+      content: question,
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setInput("");
+    setIsLoading(true);
+    try {
+      const reply = await getAdminAIResponse(
+        question,
+        orders.length,
+        designRequests.length,
+        localProducts.length,
+      );
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Math.random().toString(36).slice(2),
+          role: "assistant",
+          content: reply,
+        },
+      ]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Math.random().toString(36).slice(2),
+          role: "assistant",
+          content:
+            "I'm having trouble connecting. Please check your internet connection and try again.",
+        },
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  return (
+    <div className="max-w-2xl space-y-4">
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-mono uppercase tracking-wider flex items-center gap-2">
+            <Bot className="w-4 h-4 text-primary" />
+            AI Assistant
+            <span className="text-xs font-normal font-mono text-muted-foreground">
+              · Ask questions about your store
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {/* Messages */}
+          <div className="h-[340px] overflow-y-auto p-4 space-y-3 border-b border-border">
+            {messages.map((msg) => (
+              <div
+                key={msg.id}
+                className={`flex gap-2 ${msg.role === "user" ? "flex-row-reverse" : ""}`}
+              >
+                <div
+                  className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${msg.role === "assistant" ? "bg-primary/20 border border-primary/30" : "bg-muted border border-border"}`}
+                >
+                  {msg.role === "assistant" ? (
+                    <Bot className="w-3.5 h-3.5 text-primary" />
+                  ) : (
+                    <User className="w-3.5 h-3.5 text-muted-foreground" />
+                  )}
+                </div>
+                <div
+                  className={`max-w-[80%] rounded-xl px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap ${msg.role === "user" ? "bg-primary text-primary-foreground rounded-tr-sm" : "bg-muted text-foreground rounded-tl-sm"}`}
+                >
+                  {msg.content}
+                </div>
+              </div>
             ))}
-          </ol>
+            {isLoading && (
+              <div className="flex gap-2">
+                <div className="w-7 h-7 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center shrink-0">
+                  <Bot className="w-3.5 h-3.5 text-primary" />
+                </div>
+                <div className="bg-muted rounded-xl rounded-tl-sm px-3 py-2 text-sm text-muted-foreground flex items-center gap-1">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Analyzing store data...
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Suggested questions */}
+          <div className="p-3 border-b border-border">
+            <p className="text-xs text-muted-foreground font-mono mb-2">
+              Quick questions:
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {SUGGESTED_QUESTIONS.map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  onClick={() => sendQuestion(q)}
+                  disabled={isLoading}
+                  className="text-xs font-mono bg-muted hover:bg-muted/80 border border-border px-2 py-1 rounded-md transition-colors disabled:opacity-50"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Input */}
+          <div className="p-3 flex gap-2">
+            <Input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  sendQuestion(input);
+                }
+              }}
+              placeholder="Ask about orders, customers, sales..."
+              className="flex-1 bg-background/50 text-sm"
+              disabled={isLoading}
+              data-ocid="ai.input"
+            />
+            <Button
+              size="sm"
+              onClick={() => sendQuestion(input)}
+              disabled={isLoading || !input.trim()}
+              className="shrink-0"
+              data-ocid="ai.submit_button"
+            >
+              {isLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Send className="w-4 h-4" />
+              )}
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -1476,6 +3048,7 @@ export default function AdminDashboardPage() {
     useState<NotificationPermission>(
       typeof Notification !== "undefined" ? Notification.permission : "default",
     );
+  const [activeTab, setActiveTab] = useState("products");
 
   useEffect(() => {
     if (localStorage.getItem("megatrx_admin") !== "true") {
@@ -1528,12 +3101,25 @@ export default function AdminDashboardPage() {
               </span>
             </div>
             <div className="flex items-center gap-2">
+              {/* AI Chat quick link */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setActiveTab("ai")}
+                className="font-mono text-xs gap-1.5"
+                title="Open AI Assistant"
+                data-ocid="admin.ai.button"
+              >
+                <Bot className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">AI Chat</span>
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleEnableNotifications}
                 className="font-mono text-xs gap-1.5"
                 title="Enable browser notifications for new orders"
+                data-ocid="admin.notifications.toggle"
               >
                 {notifPermission === "granted" ? (
                   <Bell className="w-3.5 h-3.5 text-green-400" />
@@ -1549,6 +3135,7 @@ export default function AdminDashboardPage() {
                 size="sm"
                 onClick={handleLogout}
                 className="font-mono text-xs gap-2"
+                data-ocid="admin.logout.button"
               >
                 <LogOut className="w-3.5 h-3.5" />
                 Logout
@@ -1569,58 +3156,46 @@ export default function AdminDashboardPage() {
           </p>
         </div>
 
-        <Tabs defaultValue="products" className="space-y-6">
-          <TabsList className="grid grid-cols-7 w-full max-w-4xl bg-card border border-border h-auto p-1">
-            <TabsTrigger
-              value="products"
-              className="font-mono text-xs uppercase tracking-wide py-2 gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
-            >
-              <ShoppingBag className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Products</span>
-            </TabsTrigger>
-            <TabsTrigger
-              value="portfolio"
-              className="font-mono text-xs uppercase tracking-wide py-2 gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
-            >
-              <Palette className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Portfolio</span>
-            </TabsTrigger>
-            <TabsTrigger
-              value="orders"
-              className="font-mono text-xs uppercase tracking-wide py-2 gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
-            >
-              <Package className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Orders</span>
-            </TabsTrigger>
-            <TabsTrigger
-              value="designs"
-              className="font-mono text-xs uppercase tracking-wide py-2 gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
-            >
-              <PenTool className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Designs</span>
-            </TabsTrigger>
-            <TabsTrigger
-              value="content"
-              className="font-mono text-xs uppercase tracking-wide py-2 gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
-            >
-              <FileText className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Content</span>
-            </TabsTrigger>
-            <TabsTrigger
-              value="campaigns"
-              className="font-mono text-xs uppercase tracking-wide py-2 gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
-            >
-              <Mail className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Campaigns</span>
-            </TabsTrigger>
-            <TabsTrigger
-              value="payments"
-              className="font-mono text-xs uppercase tracking-wide py-2 gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
-            >
-              <CreditCard className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Payments</span>
-            </TabsTrigger>
-          </TabsList>
+        <Tabs
+          value={activeTab}
+          onValueChange={setActiveTab}
+          className="space-y-6"
+        >
+          {/* Tab list */}
+          <div className="overflow-x-auto">
+            <TabsList className="flex w-max bg-card border border-border h-auto p-1 gap-0.5">
+              {[
+                { value: "products", icon: ShoppingBag, label: "Products" },
+                { value: "portfolio", icon: Palette, label: "Portfolio" },
+                { value: "orders", icon: Package, label: "Orders" },
+                { value: "designs", icon: PenTool, label: "Designs" },
+                {
+                  value: "chat-sessions",
+                  icon: MessageSquare,
+                  label: "Chat Sessions",
+                },
+                { value: "content", icon: FileText, label: "Content" },
+                { value: "integrations", icon: Store, label: "Shopify" },
+                { value: "printify", icon: Printer, label: "Printify" },
+                { value: "printful", icon: Printer, label: "Printful" },
+                { value: "payments", icon: CreditCard, label: "Payments" },
+                { value: "campaigns", icon: Mail, label: "Campaigns" },
+                { value: "ai", icon: Bot, label: "AI Assistant" },
+                { value: "aistudio", icon: Palette, label: "AI Studio" },
+                { value: "settings", icon: Settings, label: "Settings" },
+              ].map(({ value, icon: Icon, label }) => (
+                <TabsTrigger
+                  key={value}
+                  value={value}
+                  className="font-mono text-xs uppercase tracking-wide py-2 px-3 gap-1 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground whitespace-nowrap"
+                  data-ocid={`admin.${value}.tab`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{label}</span>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
 
           <TabsContent value="products">
             <ProductsTab />
@@ -1635,19 +3210,47 @@ export default function AdminDashboardPage() {
           </TabsContent>
 
           <TabsContent value="designs">
-            <DesignRequestsTab />
+            <DesignRequestsTabEnhanced />
+          </TabsContent>
+
+          <TabsContent value="chat-sessions">
+            <ChatSessionsTab />
           </TabsContent>
 
           <TabsContent value="content">
             <ContentTab />
           </TabsContent>
 
-          <TabsContent value="campaigns">
-            <CampaignsTab />
+          <TabsContent value="integrations">
+            <IntegrationsTab />
+          </TabsContent>
+
+          <TabsContent value="printify">
+            <PrintifyTab />
+          </TabsContent>
+
+          <TabsContent value="printful">
+            <PrintfulTab />
           </TabsContent>
 
           <TabsContent value="payments">
             <PaymentsTab />
+          </TabsContent>
+
+          <TabsContent value="campaigns">
+            <CampaignsTab />
+          </TabsContent>
+
+          <TabsContent value="ai">
+            <AIAssistantTab />
+          </TabsContent>
+
+          <TabsContent value="aistudio">
+            <AIStudioTab />
+          </TabsContent>
+
+          <TabsContent value="settings">
+            <SettingsTab />
           </TabsContent>
         </Tabs>
       </main>

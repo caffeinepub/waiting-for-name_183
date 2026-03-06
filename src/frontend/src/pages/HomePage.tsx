@@ -3,7 +3,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useDesignModal } from "@/context/DesignModalContext";
 import { useGetAllPortfolioItems, useGetAllProducts } from "@/hooks/useQueries";
 import { Link } from "@tanstack/react-router";
-import { ArrowRight, Palette, PenTool, ShoppingBag, Zap } from "lucide-react";
+import {
+  ArrowRight,
+  MessageSquare,
+  Palette,
+  PenTool,
+  ShoppingBag,
+  Zap,
+} from "lucide-react";
 
 export default function HomePage() {
   const { data: portfolio = [], isLoading: portfolioLoading } =
@@ -20,6 +27,25 @@ export default function HomePage() {
       <section className="relative min-h-[70vh] sm:min-h-[80vh] flex items-center border-b border-border overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-background via-background to-primary/10" />
         <div className="absolute top-0 right-0 w-1/2 h-full bg-primary/5 skew-x-12 origin-top-right" />
+
+        {/* Hero logo - large, right side */}
+        <div className="hidden lg:flex absolute right-8 top-1/2 -translate-y-1/2 z-10 items-center justify-center">
+          <img
+            src="/assets/uploads/Rebellious-Lettermark-for-Music-Brand-MEGATRAX-3-1.PNG"
+            alt="MEGATRX Logo"
+            className="w-64 h-64 object-contain opacity-90"
+            onError={(e) => {
+              const t = e.currentTarget;
+              if (!t.dataset.fallback1) {
+                t.dataset.fallback1 = "true";
+                t.src =
+                  "/assets/uploads/Rebellious-Lettermark-for-Music-Brand-MEGATRAX-4-2.PNG";
+              } else {
+                t.style.display = "none";
+              }
+            }}
+          />
+        </div>
 
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           <div className="max-w-4xl">
@@ -56,6 +82,18 @@ export default function HomePage() {
               >
                 <PenTool className="mr-2 w-4 h-4" />
                 Custom Design
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                className="text-base"
+                onClick={() =>
+                  window.dispatchEvent(new Event("openMegatrxChat"))
+                }
+                data-ocid="home.chat_button"
+              >
+                <MessageSquare className="mr-2 w-4 h-4" />
+                Chat with Us
               </Button>
             </div>
           </div>
@@ -209,7 +247,11 @@ export default function HomePage() {
                   <Card className="overflow-hidden border-2 border-border hover:border-primary transition-all">
                     <div className="aspect-square overflow-hidden bg-muted">
                       <img
-                        src={product.imageUrl}
+                        src={
+                          product.imageUrls && product.imageUrls.length > 0
+                            ? product.imageUrls[0]
+                            : product.imageUrl
+                        }
                         alt={product.name}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                       />

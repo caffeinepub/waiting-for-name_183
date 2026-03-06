@@ -29,10 +29,9 @@ import {
 } from "lucide-react";
 import { useRef, useState } from "react";
 
-const APPAREL_CATEGORIES = ["t-shirts", "sweaters", "hoodies"];
-
 interface Props {
   product: Product;
+  sizes?: string[];
   initialQuantity?: number;
   open: boolean;
   onClose: () => void;
@@ -41,6 +40,7 @@ interface Props {
 
 export default function CustomizationModal({
   product,
+  sizes,
   initialQuantity = 1,
   open,
   onClose,
@@ -54,7 +54,7 @@ export default function CustomizationModal({
   const [fileName, setFileName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const isApparel = APPAREL_CATEGORIES.includes(product.category.toLowerCase());
+  const hasSizes = sizes && sizes.length > 0;
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -156,6 +156,28 @@ export default function CustomizationModal({
             </div>
           </div>
 
+          {/* Size — shown only when product has defined sizes */}
+          {hasSizes && (
+            <div className="space-y-2">
+              <Label className="font-mono text-xs uppercase tracking-wider flex items-center gap-1.5">
+                <Ruler className="w-3.5 h-3.5" />
+                Size / Variant
+              </Label>
+              <Select value={size} onValueChange={setSize}>
+                <SelectTrigger data-ocid="customization.select">
+                  <SelectValue placeholder="Select a size or variant…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sizes.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           {/* Text / Name to print */}
           <div className="space-y-2">
             <Label
@@ -189,28 +211,6 @@ export default function CustomizationModal({
               onChange={(e) => setColor(e.target.value)}
             />
           </div>
-
-          {/* Size — apparel only */}
-          {isApparel && (
-            <div className="space-y-2">
-              <Label className="font-mono text-xs uppercase tracking-wider flex items-center gap-1.5">
-                <Ruler className="w-3.5 h-3.5" />
-                Size
-              </Label>
-              <Select value={size} onValueChange={setSize}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a size…" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="S">Small (S)</SelectItem>
-                  <SelectItem value="M">Medium (M)</SelectItem>
-                  <SelectItem value="L">Large (L)</SelectItem>
-                  <SelectItem value="XL">X-Large (XL)</SelectItem>
-                  <SelectItem value="XXL">2X-Large (XXL)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          )}
 
           {/* Notes */}
           <div className="space-y-2">
@@ -269,6 +269,7 @@ export default function CustomizationModal({
             variant="outline"
             className="flex-1"
             onClick={handleClose}
+            data-ocid="customization.cancel_button"
           >
             Cancel
           </Button>
@@ -276,6 +277,7 @@ export default function CustomizationModal({
             type="button"
             className="flex-1 gap-2"
             onClick={handleConfirm}
+            data-ocid="customization.confirm_button"
           >
             <ShoppingCart className="w-4 h-4" />
             Add to Cart

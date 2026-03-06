@@ -31,9 +31,6 @@ interface AttachedFile {
   type: string;
 }
 
-const SYSTEM_PROMPT =
-  "You are a helpful customer support assistant for MEGATRX, a graphic design company. We specialize in custom T-shirts, business cards, mugs, photo books, sweaters, posters, stickers, and all types of custom merchandise. Help customers with questions about our products, pricing (T-shirts start at $25, mugs at $15, business cards from $20 for 100), design services, and how to get started. Be friendly and encourage them to submit a custom design request or browse our shop.";
-
 const GREETING: ChatMessage = {
   id: "greeting",
   role: "assistant",
@@ -47,43 +44,117 @@ function generateId() {
 }
 
 async function fetchAIResponse(messages: ChatMessage[]): Promise<string> {
-  const apiMessages = [
-    { role: "system" as const, content: SYSTEM_PROMPT },
-    ...messages
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      })),
-  ];
+  const lastUserMsg = messages.filter((m) => m.role === "user").slice(-1)[0];
+  const userText = lastUserMsg?.content ?? "";
 
-  const res = await fetch("https://text.pollinations.ai/", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      messages: apiMessages,
-      model: "openai",
-      stream: false,
-    }),
-  });
-
-  if (!res.ok) throw new Error("API error");
-
-  const text = await res.text();
+  // Try POST to Pollinations
   try {
-    const json = JSON.parse(text);
-    if (json?.choices?.[0]?.message?.content) {
-      return json.choices[0].message.content;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch("https://text.pollinations.ai/openai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "openai",
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a friendly customer support assistant for MEGATRX, a graphic design and custom merchandise company. We make custom T-shirts, hoodies, sweaters, mugs, tumblers, business cards, photo books, posters, stickers, iPhone cases, and event invitations. Prices: T-shirts from $25, mugs $15, business cards $20/100, photo books $35, sweaters $40, tumblers $20, iPhone cases from $18. We offer custom design services. Always be warm, concise, and helpful. Encourage browsing the shop or submitting a custom design request.",
+          },
+          { role: "user", content: userText },
+        ],
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (res.ok) {
+      const data = await res.json();
+      const text =
+        data?.choices?.[0]?.message?.content ||
+        data?.text ||
+        data?.response ||
+        "";
+      if (text && text.trim().length > 5) return text.trim();
     }
   } catch {
-    // Not JSON — return as plain text
+    // fall through to local
   }
-  return text;
+
+  // Smart local fallback — always returns something useful
+  const lower = userText.toLowerCase();
+  if (
+    lower.includes("iphone") ||
+    lower.includes("case") ||
+    lower.includes("phone")
+  ) {
+    return "We make custom iPhone cases in multiple sizes including iPhone 13, 14, 15, and Pro Max models! You can add your own design, logo, or photo. Cases start at $18. Want to place an order?";
+  }
+  if (
+    lower.includes("price") ||
+    lower.includes("cost") ||
+    lower.includes("how much")
+  ) {
+    return "Our pricing: T-shirts from $25 · Mugs $15 · Business Cards $20/100 · Photo Books $35 · Sweaters $40 · Tumblers $20 · iPhone Cases $18 · Stickers from $10. Custom design work is quoted by project. Want a custom quote?";
+  }
+  if (
+    lower.includes("t-shirt") ||
+    lower.includes("tshirt") ||
+    lower.includes("shirt")
+  ) {
+    return "Our custom T-shirts start at $25. Available in sizes S, M, L, XL, and XXL. You can add any design, logo, or artwork. We print front, back, and sleeves. Ready to order?";
+  }
+  if (
+    lower.includes("mug") ||
+    lower.includes("cup") ||
+    lower.includes("coffee")
+  ) {
+    return "Custom mugs start at $15 and come in 11oz and 15oz sizes. Full wraparound print available. Great for gifts! Want to add one to your cart?";
+  }
+  if (
+    lower.includes("custom") ||
+    lower.includes("design") ||
+    lower.includes("logo")
+  ) {
+    return "We love custom work! You can use the 'Request Custom Design' button to submit your idea, reference images, and any text you want. Our team will get back to you quickly with a quote.";
+  }
+  if (
+    lower.includes("ship") ||
+    lower.includes("deliver") ||
+    lower.includes("how long")
+  ) {
+    return "We ship via USPS and UPS. Standard delivery is 5–7 business days. Rush options are available. You'll get a tracking number by email once your order ships!";
+  }
+  if (lower.includes("track") || lower.includes("where is my order")) {
+    return "Once your order ships, we'll email you a tracking number. You can also check your order status in your account page. Need help with a specific order?";
+  }
+  if (
+    lower.includes("return") ||
+    lower.includes("refund") ||
+    lower.includes("cancel")
+  ) {
+    return "Since all our items are custom-made, we accept returns for defects or errors on our end. If there's an issue with your order, please contact us and we'll make it right!";
+  }
+  if (lower.includes("business card")) {
+    return "Custom business cards start at $20 for 100 cards. Full color, both sides available. Multiple finishes: matte, gloss, and soft-touch. Want to order some?";
+  }
+  if (lower.includes("sweater") || lower.includes("hoodie")) {
+    return "Custom sweaters and hoodies start at $40. Available in sizes S–XXL with full custom print. Perfect for teams, events, or gifts!";
+  }
+  if (
+    lower.includes("hello") ||
+    lower.includes("hi ") ||
+    lower.includes("hey")
+  ) {
+    return "Hey! Welcome to MEGATRX! I'm here to help with products, pricing, custom orders, or any questions. What can I help you with today?";
+  }
+  return "Thanks for reaching out to MEGATRX! We specialize in custom merch, apparel, and graphic design. You can browse our shop, submit a custom design request, or ask me anything. How can I help?";
 }
 
 export default function ChatWidget() {
   const { actor } = useActor();
   const { openModal } = useDesignModal();
+  const savedLogo = localStorage.getItem("megatrx_logo");
 
   const [isOpen, setIsOpen] = useState(false);
   const [view, setView] = useState<"chat" | "escalation">("chat");
@@ -103,6 +174,13 @@ export default function ChatWidget() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Listen for external open requests (e.g. "Chat with Us" button on homepage)
+  useEffect(() => {
+    const handler = () => setIsOpen(true);
+    window.addEventListener("openMegatrxChat", handler);
+    return () => window.removeEventListener("openMegatrxChat", handler);
+  }, []);
 
   // Scroll to bottom whenever messages change
   useEffect(() => {
@@ -212,7 +290,7 @@ export default function ChatWidget() {
           id: generateId(),
           role: "assistant",
           content:
-            "I'm having trouble connecting. Please try again or contact us directly.",
+            "I'm having a connection issue right now. Please try again in a moment, or use the 'Talk to a human' button below.",
           timestamp: new Date(),
         },
       ]);
@@ -311,8 +389,25 @@ export default function ChatWidget() {
                     <ArrowLeft className="w-4 h-4" />
                   </button>
                 )}
-                <div className="w-8 h-8 rounded-full bg-primary-foreground/20 flex items-center justify-center">
-                  <Bot className="w-4 h-4" />
+                <div className="w-8 h-8 rounded-full bg-primary-foreground/20 flex items-center justify-center overflow-hidden">
+                  <img
+                    src={
+                      savedLogo ||
+                      "/assets/uploads/Rebellious-Lettermark-for-Music-Brand-MEGATRAX-3-1.PNG"
+                    }
+                    alt="MEGATRX"
+                    className="w-full h-full object-contain"
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                      const parent = e.currentTarget.parentElement;
+                      if (parent) {
+                        const icon = document.createElement("span");
+                        icon.innerHTML =
+                          '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>';
+                        parent.appendChild(icon);
+                      }
+                    }}
+                  />
                 </div>
                 <div>
                   <p className="text-sm font-bold tracking-tight">

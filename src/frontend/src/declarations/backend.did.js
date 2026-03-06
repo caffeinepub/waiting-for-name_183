@@ -19,6 +19,18 @@ export const _CaffeineStorageRefillResult = IDL.Record({
   'success' : IDL.Opt(IDL.Bool),
   'topped_up_amount' : IDL.Opt(IDL.Nat),
 });
+export const UserRole = IDL.Variant({
+  'admin' : IDL.Null,
+  'user' : IDL.Null,
+  'guest' : IDL.Null,
+});
+export const ShoppingItem = IDL.Record({
+  'productName' : IDL.Text,
+  'currency' : IDL.Text,
+  'quantity' : IDL.Nat,
+  'priceInCents' : IDL.Nat,
+  'productDescription' : IDL.Text,
+});
 export const OrderItem = IDL.Record({
   'productId' : IDL.Nat,
   'quantity' : IDL.Nat,
@@ -55,11 +67,52 @@ export const PortfolioItem = IDL.Record({
 });
 export const Product = IDL.Record({
   'id' : IDL.Nat,
+  'imageUrls' : IDL.Vec(IDL.Text),
   'name' : IDL.Text,
   'description' : IDL.Text,
+  'stock' : IDL.Nat,
   'imageUrl' : IDL.Text,
   'category' : IDL.Text,
   'price' : IDL.Nat,
+});
+export const UserProfile = IDL.Record({
+  'name' : IDL.Text,
+  'email' : IDL.Text,
+});
+export const IntegrationSettings = IDL.Record({
+  'printifyShopId' : IDL.Text,
+  'shopifyDomain' : IDL.Text,
+  'printifyApiKey' : IDL.Text,
+  'shopifyApiToken' : IDL.Text,
+});
+export const StripeSessionStatus = IDL.Variant({
+  'completed' : IDL.Record({
+    'userPrincipal' : IDL.Opt(IDL.Text),
+    'response' : IDL.Text,
+  }),
+  'failed' : IDL.Record({ 'error' : IDL.Text }),
+});
+export const StripeConfiguration = IDL.Record({
+  'allowedCountries' : IDL.Vec(IDL.Text),
+  'secretKey' : IDL.Text,
+});
+export const http_header = IDL.Record({
+  'value' : IDL.Text,
+  'name' : IDL.Text,
+});
+export const http_request_result = IDL.Record({
+  'status' : IDL.Nat,
+  'body' : IDL.Vec(IDL.Nat8),
+  'headers' : IDL.Vec(http_header),
+});
+export const TransformationInput = IDL.Record({
+  'context' : IDL.Vec(IDL.Nat8),
+  'response' : http_request_result,
+});
+export const TransformationOutput = IDL.Record({
+  'status' : IDL.Nat,
+  'body' : IDL.Vec(IDL.Nat8),
+  'headers' : IDL.Vec(http_header),
 });
 
 export const idlService = IDL.Service({
@@ -89,6 +142,7 @@ export const idlService = IDL.Service({
       [],
     ),
   '_caffeineStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
+  '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
   'addCustomDesignRequest' : IDL.Func(
       [
         IDL.Text,
@@ -113,6 +167,25 @@ export const idlService = IDL.Service({
       [IDL.Nat],
       [],
     ),
+  'addProductWithImages' : IDL.Func(
+      [
+        IDL.Text,
+        IDL.Text,
+        IDL.Nat,
+        IDL.Text,
+        IDL.Text,
+        IDL.Vec(IDL.Text),
+        IDL.Nat,
+      ],
+      [IDL.Nat],
+      [],
+    ),
+  'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
+  'createCheckoutSession' : IDL.Func(
+      [IDL.Vec(ShoppingItem), IDL.Text, IDL.Text],
+      [IDL.Text],
+      [],
+    ),
   'createOrder' : IDL.Func(
       [IDL.Text, IDL.Text, IDL.Text, IDL.Vec(OrderItem), IDL.Text],
       [IDL.Nat],
@@ -130,15 +203,44 @@ export const idlService = IDL.Service({
   'getAllOrders' : IDL.Func([], [IDL.Vec(Order)], ['query']),
   'getAllPortfolioItems' : IDL.Func([], [IDL.Vec(PortfolioItem)], ['query']),
   'getAllProducts' : IDL.Func([], [IDL.Vec(Product)], ['query']),
+  'getAllSiteTexts' : IDL.Func(
+      [],
+      [IDL.Vec(IDL.Tuple(IDL.Text, IDL.Text))],
+      ['query'],
+    ),
+  'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
+  'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
   'getCustomDesignRequest' : IDL.Func(
       [IDL.Nat],
       [CustomDesignRequest],
       ['query'],
     ),
+  'getHumanRequestCount' : IDL.Func([], [IDL.Nat], ['query']),
+  'getIntegrationSettings' : IDL.Func([], [IntegrationSettings], ['query']),
+  'getNotificationEmail' : IDL.Func([], [IDL.Text], ['query']),
   'getOrder' : IDL.Func([IDL.Nat], [Order], ['query']),
   'getPortfolioItem' : IDL.Func([IDL.Nat], [PortfolioItem], ['query']),
   'getProduct' : IDL.Func([IDL.Nat], [Product], ['query']),
   'getShippingInfo' : IDL.Func([], [IDL.Text], ['query']),
+  'getSiteText' : IDL.Func([IDL.Text], [IDL.Text], ['query']),
+  'getStripeSessionStatus' : IDL.Func([IDL.Text], [StripeSessionStatus], []),
+  'getUserProfile' : IDL.Func(
+      [IDL.Principal],
+      [IDL.Opt(UserProfile)],
+      ['query'],
+    ),
+  'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+  'isStripeConfigured' : IDL.Func([], [IDL.Bool], ['query']),
+  'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
+  'setIntegrationSettings' : IDL.Func([IntegrationSettings], [], []),
+  'setNotificationEmail' : IDL.Func([IDL.Text], [], []),
+  'setSiteText' : IDL.Func([IDL.Text, IDL.Text], [], []),
+  'setStripeConfiguration' : IDL.Func([StripeConfiguration], [], []),
+  'transform' : IDL.Func(
+      [TransformationInput],
+      [TransformationOutput],
+      ['query'],
+    ),
   'updateAboutUs' : IDL.Func([IDL.Text], [], []),
   'updateCustomDesignRequestStatus' : IDL.Func([IDL.Nat, IDL.Text], [], []),
   'updateOrderStatus' : IDL.Func([IDL.Nat, IDL.Text, IDL.Text], [], []),
@@ -149,6 +251,20 @@ export const idlService = IDL.Service({
     ),
   'updateProduct' : IDL.Func(
       [IDL.Nat, IDL.Text, IDL.Text, IDL.Nat, IDL.Text, IDL.Text],
+      [],
+      [],
+    ),
+  'updateProductWithImages' : IDL.Func(
+      [
+        IDL.Nat,
+        IDL.Text,
+        IDL.Text,
+        IDL.Nat,
+        IDL.Text,
+        IDL.Text,
+        IDL.Vec(IDL.Text),
+        IDL.Nat,
+      ],
       [],
       [],
     ),
@@ -168,6 +284,18 @@ export const idlFactory = ({ IDL }) => {
   const _CaffeineStorageRefillResult = IDL.Record({
     'success' : IDL.Opt(IDL.Bool),
     'topped_up_amount' : IDL.Opt(IDL.Nat),
+  });
+  const UserRole = IDL.Variant({
+    'admin' : IDL.Null,
+    'user' : IDL.Null,
+    'guest' : IDL.Null,
+  });
+  const ShoppingItem = IDL.Record({
+    'productName' : IDL.Text,
+    'currency' : IDL.Text,
+    'quantity' : IDL.Nat,
+    'priceInCents' : IDL.Nat,
+    'productDescription' : IDL.Text,
   });
   const OrderItem = IDL.Record({ 'productId' : IDL.Nat, 'quantity' : IDL.Nat });
   const CustomDesignRequest = IDL.Record({
@@ -202,11 +330,46 @@ export const idlFactory = ({ IDL }) => {
   });
   const Product = IDL.Record({
     'id' : IDL.Nat,
+    'imageUrls' : IDL.Vec(IDL.Text),
     'name' : IDL.Text,
     'description' : IDL.Text,
+    'stock' : IDL.Nat,
     'imageUrl' : IDL.Text,
     'category' : IDL.Text,
     'price' : IDL.Nat,
+  });
+  const UserProfile = IDL.Record({ 'name' : IDL.Text, 'email' : IDL.Text });
+  const IntegrationSettings = IDL.Record({
+    'printifyShopId' : IDL.Text,
+    'shopifyDomain' : IDL.Text,
+    'printifyApiKey' : IDL.Text,
+    'shopifyApiToken' : IDL.Text,
+  });
+  const StripeSessionStatus = IDL.Variant({
+    'completed' : IDL.Record({
+      'userPrincipal' : IDL.Opt(IDL.Text),
+      'response' : IDL.Text,
+    }),
+    'failed' : IDL.Record({ 'error' : IDL.Text }),
+  });
+  const StripeConfiguration = IDL.Record({
+    'allowedCountries' : IDL.Vec(IDL.Text),
+    'secretKey' : IDL.Text,
+  });
+  const http_header = IDL.Record({ 'value' : IDL.Text, 'name' : IDL.Text });
+  const http_request_result = IDL.Record({
+    'status' : IDL.Nat,
+    'body' : IDL.Vec(IDL.Nat8),
+    'headers' : IDL.Vec(http_header),
+  });
+  const TransformationInput = IDL.Record({
+    'context' : IDL.Vec(IDL.Nat8),
+    'response' : http_request_result,
+  });
+  const TransformationOutput = IDL.Record({
+    'status' : IDL.Nat,
+    'body' : IDL.Vec(IDL.Nat8),
+    'headers' : IDL.Vec(http_header),
   });
   
   return IDL.Service({
@@ -236,6 +399,7 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     '_caffeineStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
+    '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
     'addCustomDesignRequest' : IDL.Func(
         [
           IDL.Text,
@@ -260,6 +424,25 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Nat],
         [],
       ),
+    'addProductWithImages' : IDL.Func(
+        [
+          IDL.Text,
+          IDL.Text,
+          IDL.Nat,
+          IDL.Text,
+          IDL.Text,
+          IDL.Vec(IDL.Text),
+          IDL.Nat,
+        ],
+        [IDL.Nat],
+        [],
+      ),
+    'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
+    'createCheckoutSession' : IDL.Func(
+        [IDL.Vec(ShoppingItem), IDL.Text, IDL.Text],
+        [IDL.Text],
+        [],
+      ),
     'createOrder' : IDL.Func(
         [IDL.Text, IDL.Text, IDL.Text, IDL.Vec(OrderItem), IDL.Text],
         [IDL.Nat],
@@ -277,15 +460,44 @@ export const idlFactory = ({ IDL }) => {
     'getAllOrders' : IDL.Func([], [IDL.Vec(Order)], ['query']),
     'getAllPortfolioItems' : IDL.Func([], [IDL.Vec(PortfolioItem)], ['query']),
     'getAllProducts' : IDL.Func([], [IDL.Vec(Product)], ['query']),
+    'getAllSiteTexts' : IDL.Func(
+        [],
+        [IDL.Vec(IDL.Tuple(IDL.Text, IDL.Text))],
+        ['query'],
+      ),
+    'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
+    'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
     'getCustomDesignRequest' : IDL.Func(
         [IDL.Nat],
         [CustomDesignRequest],
         ['query'],
       ),
+    'getHumanRequestCount' : IDL.Func([], [IDL.Nat], ['query']),
+    'getIntegrationSettings' : IDL.Func([], [IntegrationSettings], ['query']),
+    'getNotificationEmail' : IDL.Func([], [IDL.Text], ['query']),
     'getOrder' : IDL.Func([IDL.Nat], [Order], ['query']),
     'getPortfolioItem' : IDL.Func([IDL.Nat], [PortfolioItem], ['query']),
     'getProduct' : IDL.Func([IDL.Nat], [Product], ['query']),
     'getShippingInfo' : IDL.Func([], [IDL.Text], ['query']),
+    'getSiteText' : IDL.Func([IDL.Text], [IDL.Text], ['query']),
+    'getStripeSessionStatus' : IDL.Func([IDL.Text], [StripeSessionStatus], []),
+    'getUserProfile' : IDL.Func(
+        [IDL.Principal],
+        [IDL.Opt(UserProfile)],
+        ['query'],
+      ),
+    'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+    'isStripeConfigured' : IDL.Func([], [IDL.Bool], ['query']),
+    'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
+    'setIntegrationSettings' : IDL.Func([IntegrationSettings], [], []),
+    'setNotificationEmail' : IDL.Func([IDL.Text], [], []),
+    'setSiteText' : IDL.Func([IDL.Text, IDL.Text], [], []),
+    'setStripeConfiguration' : IDL.Func([StripeConfiguration], [], []),
+    'transform' : IDL.Func(
+        [TransformationInput],
+        [TransformationOutput],
+        ['query'],
+      ),
     'updateAboutUs' : IDL.Func([IDL.Text], [], []),
     'updateCustomDesignRequestStatus' : IDL.Func([IDL.Nat, IDL.Text], [], []),
     'updateOrderStatus' : IDL.Func([IDL.Nat, IDL.Text, IDL.Text], [], []),
@@ -296,6 +508,20 @@ export const idlFactory = ({ IDL }) => {
       ),
     'updateProduct' : IDL.Func(
         [IDL.Nat, IDL.Text, IDL.Text, IDL.Nat, IDL.Text, IDL.Text],
+        [],
+        [],
+      ),
+    'updateProductWithImages' : IDL.Func(
+        [
+          IDL.Nat,
+          IDL.Text,
+          IDL.Text,
+          IDL.Nat,
+          IDL.Text,
+          IDL.Text,
+          IDL.Vec(IDL.Text),
+          IDL.Nat,
+        ],
         [],
         [],
       ),

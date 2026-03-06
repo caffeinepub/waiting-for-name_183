@@ -1,5 +1,12 @@
-import { loadStripe } from "@stripe/stripe-js";
 import { useEffect, useRef, useState } from "react";
+
+// Stripe loaded via CDN in index.html - access via window.Stripe
+declare global {
+  interface Window {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    Stripe?: (pk: string) => any;
+  }
+}
 
 interface StripeApplePayButtonProps {
   /** Total amount in cents */
@@ -29,7 +36,22 @@ export default function StripeApplePayButton({
     let cancelled = false;
 
     (async () => {
-      const stripe = await loadStripe(pk);
+      // Load Stripe.js from CDN if not already available
+      if (!window.Stripe) {
+        await new Promise<void>((resolve) => {
+          const script = document.createElement("script");
+          script.src = "https://js.stripe.com/v3/";
+          script.onload = () => resolve();
+          document.head.appendChild(script);
+        });
+      }
+
+      if (!window.Stripe || cancelled) {
+        setAvailable(false);
+        return;
+      }
+
+      const stripe = window.Stripe(pk);
       if (!stripe || cancelled) return;
 
       const pr = stripe.paymentRequest({
@@ -53,22 +75,11 @@ export default function StripeApplePayButton({
 
       setAvailable(true);
 
-      // Mount the button once the element is in the DOM
-      // We wait one tick for React to render the container
       setTimeout(() => {
         if (cancelled || !mountRef.current) return;
 
-        // Clear any old button
         mountRef.current.innerHTML = "";
 
-        const { Elements, PaymentRequestButtonElement } =
-          // Dynamically import to avoid SSR issues and keep bundle lean
-          // We already have @stripe/react-stripe-js installed
-          // but we'll use the low-level stripe.js API directly for simplicity
-          // so we don't need a context provider
-          { Elements: null, PaymentRequestButtonElement: null };
-
-        // Render via raw DOM + Stripe Elements
         const elements = stripe.elements();
         const prButton = elements.create("paymentRequestButton", {
           paymentRequest: pr,
@@ -81,20 +92,22 @@ export default function StripeApplePayButton({
           },
         });
 
-        prButton.mount(mountRef.current!);
+        prButton.mount(mountRef.current);
 
-        pr.on("paymentmethod", (ev) => {
-          onPaymentMethod(ev.paymentMethod.id);
-          ev.complete("success");
-        });
+        pr.on(
+          "paymentmethod",
+          (ev: {
+            paymentMethod: { id: string };
+            complete: (status: string) => void;
+          }) => {
+            onPaymentMethod(ev.paymentMethod.id);
+            ev.complete("success");
+          },
+        );
 
         cleanupRef.current = () => {
           prButton.unmount();
         };
-
-        // Silence unused imports warning
-        void Elements;
-        void PaymentRequestButtonElement;
       }, 0);
     })();
 

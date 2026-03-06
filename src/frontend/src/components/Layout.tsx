@@ -23,10 +23,13 @@ function LayoutInner() {
   const { openModal } = useAuthModal();
   useSeedData();
 
+  const savedLogo = localStorage.getItem("megatrx_logo");
+
   const navLinks = [
     { to: "/", label: "Home" },
     { to: "/portfolio", label: "Portfolio" },
     { to: "/shop", label: "Shop" },
+    { to: "/design-tools", label: "AI Tools" },
     { to: "/about", label: "About" },
     { to: "/shipping", label: "Shipping" },
     { to: "/help", label: "Help" },
@@ -50,10 +53,29 @@ function LayoutInner() {
             <div className="flex items-center justify-between h-16 sm:h-20">
               {/* Logo */}
               <Link to="/" className="group">
-                <h1 className="text-2xl sm:text-3xl font-bold tracking-tighter font-sans">
-                  MEGA
-                  <span className="text-primary">TRX</span>
-                </h1>
+                <div className="flex items-center gap-2">
+                  <img
+                    src={
+                      savedLogo ||
+                      "/assets/uploads/Rebellious-Lettermark-for-Music-Brand-MEGATRAX-3-1.PNG"
+                    }
+                    alt="MEGATRX"
+                    className="h-10 w-auto object-contain"
+                    onError={(e) => {
+                      const t = e.currentTarget;
+                      if (!t.dataset.fallback1) {
+                        t.dataset.fallback1 = "true";
+                        t.src =
+                          "/assets/uploads/Rebellious-Lettermark-for-Music-Brand-MEGATRAX-4-2.PNG";
+                      } else {
+                        t.style.display = "none";
+                      }
+                    }}
+                  />
+                  <h1 className="text-2xl sm:text-3xl font-bold tracking-tighter font-sans">
+                    MEGA<span className="text-primary">TRX</span>
+                  </h1>
+                </div>
               </Link>
 
               {/* Navigation */}

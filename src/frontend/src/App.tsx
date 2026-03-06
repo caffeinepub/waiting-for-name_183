@@ -15,6 +15,7 @@ import AdminLoginPage from "./pages/AdminLoginPage";
 import CartPage from "./pages/CartPage";
 import CheckoutCancelPage from "./pages/CheckoutCancelPage";
 import CheckoutSuccessPage from "./pages/CheckoutSuccessPage";
+import DesignToolsPage from "./pages/DesignToolsPage";
 import HelpPage from "./pages/HelpPage";
 import HomePage from "./pages/HomePage";
 import OrderReceiptPage from "./pages/OrderReceiptPage";
@@ -95,6 +96,12 @@ const helpRoute = createRoute({
   component: HelpPage,
 });
 
+const designToolsRoute = createRoute({
+  getParentRoute: () => publicLayoutRoute,
+  path: "/design-tools",
+  component: DesignToolsPage,
+});
+
 const checkoutSuccessRoute = createRoute({
   getParentRoute: () => publicLayoutRoute,
   path: "/checkout/success",
@@ -132,6 +139,7 @@ const routeTree = rootRoute.addChildren([
     orderReceiptRoute,
     accountRoute,
     helpRoute,
+    designToolsRoute,
     checkoutSuccessRoute,
     checkoutCancelRoute,
   ]),

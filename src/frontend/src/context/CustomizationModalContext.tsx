@@ -9,6 +9,7 @@ interface CustomizationModalContextValue {
   openCustomizationModal: (
     product: Product,
     onConfirm: ConfirmCallback,
+    sizes?: string[],
   ) => void;
   closeCustomizationModal: () => void;
 }
@@ -19,6 +20,7 @@ const CustomizationModalContext =
 interface ModalState {
   product: Product;
   onConfirm: ConfirmCallback;
+  sizes?: string[];
 }
 
 export function CustomizationModalProvider({
@@ -29,8 +31,8 @@ export function CustomizationModalProvider({
   const [modalState, setModalState] = useState<ModalState | null>(null);
 
   const openCustomizationModal = useCallback(
-    (product: Product, onConfirm: ConfirmCallback) => {
-      setModalState({ product, onConfirm });
+    (product: Product, onConfirm: ConfirmCallback, sizes?: string[]) => {
+      setModalState({ product, onConfirm, sizes });
     },
     [],
   );
@@ -54,6 +56,7 @@ export function CustomizationModalProvider({
       {modalState && (
         <CustomizationModal
           product={modalState.product}
+          sizes={modalState.sizes}
           open={!!modalState}
           onClose={closeCustomizationModal}
           onConfirm={handleConfirm}

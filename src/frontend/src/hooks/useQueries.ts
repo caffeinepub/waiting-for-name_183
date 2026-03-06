@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   CustomDesignRequest,
+  IntegrationSettings,
   Order,
   OrderItem,
   PortfolioItem,
@@ -200,6 +201,106 @@ export function useDeleteCustomDesignRequest() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["designRequests"] });
+    },
+  });
+}
+
+// Human request count
+export function useGetHumanRequestCount() {
+  const { actor, isFetching } = useActor();
+  return useQuery<bigint>({
+    queryKey: ["humanRequestCount"],
+    queryFn: async () => {
+      if (!actor) return BigInt(0);
+      return actor.getHumanRequestCount();
+    },
+    enabled: !!actor && !isFetching,
+  });
+}
+
+// Integration settings
+export function useGetIntegrationSettings() {
+  const { actor, isFetching } = useActor();
+  return useQuery<IntegrationSettings>({
+    queryKey: ["integrationSettings"],
+    queryFn: async () => {
+      if (!actor)
+        return {
+          printifyApiKey: "",
+          printifyShopId: "",
+          shopifyDomain: "",
+          shopifyApiToken: "",
+        };
+      return actor.getIntegrationSettings();
+    },
+    enabled: !!actor && !isFetching,
+  });
+}
+
+export function useSetIntegrationSettings() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (settings: IntegrationSettings) => {
+      if (!actor) throw new Error("Actor not initialized");
+      return actor.setIntegrationSettings(settings);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["integrationSettings"] });
+    },
+  });
+}
+
+// Notification email
+export function useGetNotificationEmail() {
+  const { actor, isFetching } = useActor();
+  return useQuery<string>({
+    queryKey: ["notificationEmail"],
+    queryFn: async () => {
+      if (!actor) return "";
+      return actor.getNotificationEmail();
+    },
+    enabled: !!actor && !isFetching,
+  });
+}
+
+export function useSetNotificationEmail() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (email: string) => {
+      if (!actor) throw new Error("Actor not initialized");
+      return actor.setNotificationEmail(email);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["notificationEmail"] });
+    },
+  });
+}
+
+// Site texts
+export function useGetAllSiteTexts() {
+  const { actor, isFetching } = useActor();
+  return useQuery<Array<[string, string]>>({
+    queryKey: ["siteTexts"],
+    queryFn: async () => {
+      if (!actor) return [];
+      return actor.getAllSiteTexts();
+    },
+    enabled: !!actor && !isFetching,
+  });
+}
+
+export function useSetSiteText() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ key, value }: { key: string; value: string }) => {
+      if (!actor) throw new Error("Actor not initialized");
+      return actor.setSiteText(key, value);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["siteTexts"] });
     },
   });
 }
