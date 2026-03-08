@@ -12,7 +12,7 @@ async function compressImage(file: File): Promise<string> {
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
-      const MAX = 400;
+      const MAX = 800;
       let w = img.width;
       let h = img.height;
       if (w > MAX || h > MAX) {
@@ -28,12 +28,15 @@ async function compressImage(file: File): Promise<string> {
       canvas.height = h;
       ctx.drawImage(img, 0, 0, w, h);
       URL.revokeObjectURL(url);
-      let compressed = canvas.toDataURL("image/jpeg", 0.5);
-      // Extra compression pass if still too large
-      if (compressed.length > 400000) {
-        compressed = canvas.toDataURL("image/jpeg", 0.3);
+      let compressed = canvas.toDataURL("image/jpeg", 0.75);
+      // Compression passes if too large
+      if (compressed.length > 600000) {
+        compressed = canvas.toDataURL("image/jpeg", 0.55);
       }
-      if (compressed.length > 800000) {
+      if (compressed.length > 900000) {
+        compressed = canvas.toDataURL("image/jpeg", 0.35);
+      }
+      if (compressed.length > 1200000) {
         reject(
           new Error(
             "Image too large even after compression. Please use a smaller image file.",

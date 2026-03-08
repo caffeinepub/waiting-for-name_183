@@ -13,6 +13,7 @@ import {
   Send,
   Upload,
   User,
+  UserCheck,
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -23,6 +24,7 @@ interface ChatMessage {
   role: "user" | "assistant" | "system-info";
   content: string;
   timestamp: Date;
+  isHuman?: boolean; // true when the message is from real admin (not AI)
 }
 
 interface AttachedFile {
@@ -39,13 +41,151 @@ const GREETING: ChatMessage = {
   timestamp: new Date(),
 };
 
+// Phrases that trigger escalation to a human
+const HUMAN_TRIGGER_PHRASES = [
+  "talk to a human",
+  "talk to human",
+  "speak to a human",
+  "speak to human",
+  "real person",
+  "human agent",
+  "live agent",
+  "live chat",
+  "talk to someone",
+  "speak to someone",
+  "talk to a person",
+  "speak to a person",
+  "connect me to",
+  "agent please",
+  "human please",
+  "representative",
+  "rep please",
+  "customer service",
+];
+
+function wantsHuman(text: string): boolean {
+  const lower = text.toLowerCase();
+  return HUMAN_TRIGGER_PHRASES.some((phrase) => lower.includes(phrase));
+}
+
 function generateId() {
   return Math.random().toString(36).slice(2, 9);
+}
+
+// Session management for live admin chat
+function getOrCreateSessionId(): string {
+  let id = sessionStorage.getItem("megatrx_chat_session_id");
+  if (!id) {
+    id = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    sessionStorage.setItem("megatrx_chat_session_id", id);
+  }
+  return id;
+}
+
+interface LiveChatSession {
+  id: string;
+  customerName: string;
+  customerEmail?: string;
+  lastSeen: string;
+  isEscalated: boolean; // true when customer requested human
+  messages: Array<{
+    role: "customer" | "admin";
+    content: string;
+    timestamp: string;
+    isHuman?: boolean;
+  }>;
+}
+
+function getLiveSessions(): LiveChatSession[] {
+  try {
+    const raw = localStorage.getItem("megatrx_live_chat_sessions");
+    return raw ? (JSON.parse(raw) as LiveChatSession[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLiveSessions(sessions: LiveChatSession[]) {
+  localStorage.setItem("megatrx_live_chat_sessions", JSON.stringify(sessions));
+}
+
+function upsertSessionMessage(
+  sessionId: string,
+  role: "customer" | "admin",
+  content: string,
+  customerName?: string,
+  customerEmail?: string,
+  isEscalated?: boolean,
+) {
+  const sessions = getLiveSessions();
+  const existing = sessions.find((s) => s.id === sessionId);
+  const newMsg = { role, content, timestamp: new Date().toISOString() };
+  if (existing) {
+    existing.messages.push(newMsg);
+    existing.lastSeen = new Date().toISOString();
+    if (customerName && role === "customer") {
+      existing.customerName = customerName;
+    }
+    if (customerEmail) {
+      existing.customerEmail = customerEmail;
+    }
+    if (isEscalated) {
+      existing.isEscalated = true;
+    }
+  } else {
+    sessions.push({
+      id: sessionId,
+      customerName: customerName || "Customer",
+      customerEmail: customerEmail,
+      lastSeen: new Date().toISOString(),
+      isEscalated: isEscalated || false,
+      messages: [newMsg],
+    });
+  }
+  saveLiveSessions(sessions);
+}
+
+function getAdminRepliesForSession(
+  sessionId: string,
+  afterIndex: number,
+): Array<{ content: string; timestamp: string; isHuman?: boolean }> {
+  const sessions = getLiveSessions();
+  const session = sessions.find((s) => s.id === sessionId);
+  if (!session) return [];
+  return session.messages
+    .filter((m) => m.role === "admin")
+    .slice(afterIndex)
+    .map((m) => ({
+      content: m.content,
+      timestamp: m.timestamp,
+      isHuman: m.isHuman,
+    }));
 }
 
 async function fetchAIResponse(messages: ChatMessage[]): Promise<string> {
   const lastUserMsg = messages.filter((m) => m.role === "user").slice(-1)[0];
   const userText = lastUserMsg?.content ?? "";
+
+  const systemPrompt =
+    "You are a friendly customer support assistant for MEGATRX, a graphic design and custom merchandise company. We make custom T-shirts, hoodies, sweaters, mugs, tumblers, business cards, photo books, posters, stickers, iPhone cases, and event invitations. Prices: T-shirts from $25, mugs $15, business cards $20/100, photo books $35, sweaters $40, tumblers $20, iPhone cases from $18. We offer custom design services. Always be warm, concise, and helpful. Encourage browsing the shop or submitting a custom design request.";
+
+  // Try GET endpoint first (most reliable)
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    const fullPrompt = `${systemPrompt}\n\nCustomer: ${userText}\n\nAssistant:`;
+    const res = await fetch(
+      `https://text.pollinations.ai/${encodeURIComponent(fullPrompt)}`,
+      { signal: controller.signal },
+    );
+    clearTimeout(timeout);
+    if (res.ok) {
+      const text = await res.text();
+      if (text && text.trim().length > 5) return text.trim();
+    }
+  } catch {
+    // fall through to POST
+  }
 
   // Try POST to Pollinations
   try {
@@ -57,11 +197,7 @@ async function fetchAIResponse(messages: ChatMessage[]): Promise<string> {
       body: JSON.stringify({
         model: "openai",
         messages: [
-          {
-            role: "system",
-            content:
-              "You are a friendly customer support assistant for MEGATRX, a graphic design and custom merchandise company. We make custom T-shirts, hoodies, sweaters, mugs, tumblers, business cards, photo books, posters, stickers, iPhone cases, and event invitations. Prices: T-shirts from $25, mugs $15, business cards $20/100, photo books $35, sweaters $40, tumblers $20, iPhone cases from $18. We offer custom design services. Always be warm, concise, and helpful. Encourage browsing the shop or submitting a custom design request.",
-          },
+          { role: "system", content: systemPrompt },
           { role: "user", content: userText },
         ],
       }),
@@ -154,7 +290,11 @@ async function fetchAIResponse(messages: ChatMessage[]): Promise<string> {
 export default function ChatWidget() {
   const { actor } = useActor();
   const { openModal } = useDesignModal();
-  const savedLogo = localStorage.getItem("megatrx_logo");
+  const [savedLogo, setSavedLogo] = useState(
+    () => localStorage.getItem("megatrx_logo") || "",
+  );
+  const sessionId = getOrCreateSessionId();
+  const [seenAdminReplies, setSeenAdminReplies] = useState(0);
 
   const [isOpen, setIsOpen] = useState(false);
   const [view, setView] = useState<"chat" | "escalation">("chat");
@@ -170,6 +310,8 @@ export default function ChatWidget() {
   const [escalationMessage, setEscalationMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [escalationSent, setEscalationSent] = useState(false);
+  // Track if currently in human mode (escalated + waiting for human reply)
+  const [humanMode, setHumanMode] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -177,10 +319,54 @@ export default function ChatWidget() {
 
   // Listen for external open requests (e.g. "Chat with Us" button on homepage)
   useEffect(() => {
-    const handler = () => setIsOpen(true);
+    const handler = () => {
+      setIsOpen(true);
+    };
     window.addEventListener("openMegatrxChat", handler);
     return () => window.removeEventListener("openMegatrxChat", handler);
   }, []);
+
+  // Update logo when it changes in localStorage
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const current = localStorage.getItem("megatrx_logo") || "";
+      setSavedLogo((prev) => (prev !== current ? current : prev));
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Poll for admin replies every 3 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const adminReplies = getAdminRepliesForSession(
+        sessionId,
+        seenAdminReplies,
+      );
+      if (adminReplies.length > 0) {
+        setSeenAdminReplies((prev) => prev + adminReplies.length);
+        // Filter out AI bot replies (those prefixed with [AI Bot])
+        const humanReplies = adminReplies.filter(
+          (r) => !r.content.startsWith("[AI Bot]"),
+        );
+        if (humanReplies.length > 0) {
+          setMessages((prev) => [
+            ...prev,
+            ...humanReplies.map((r) => ({
+              id: generateId(),
+              role: "assistant" as const,
+              content: r.content,
+              timestamp: new Date(r.timestamp),
+              isHuman: true,
+            })),
+          ]);
+          // Auto-open chat if it was closed
+          setIsOpen(true);
+          setView("chat");
+        }
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [sessionId, seenAdminReplies]);
 
   // Scroll to bottom whenever messages change
   useEffect(() => {
@@ -200,7 +386,7 @@ export default function ChatWidget() {
     const recentContext = messages
       .slice(-6)
       .filter((m) => m.role !== "system-info")
-      .map((m) => `${m.role === "user" ? "Customer" : "Bot"}: ${m.content}`)
+      .map((m) => `${m.role === "user" ? "Customer" : "Support"}: ${m.content}`)
       .join("\n");
     setEscalationMessage(recentContext);
     setView("escalation");
@@ -270,6 +456,34 @@ export default function ChatWidget() {
     setMessages(updatedMessages);
     setInput("");
     setAttachedFiles([]);
+
+    // Save customer message to live session so admin can see it
+    upsertSessionMessage(sessionId, "customer", userContent);
+
+    // Check if customer wants to talk to a human
+    if (wantsHuman(userContent)) {
+      setIsTyping(true);
+      // Small delay to feel natural
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      setIsTyping(false);
+
+      const botMsg: ChatMessage = {
+        id: generateId(),
+        role: "assistant",
+        content:
+          "Of course! I'll connect you with a real MEGATRX team member. Please fill out the short form below so we know how to reach you.",
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, botMsg]);
+      upsertSessionMessage(sessionId, "admin", `[AI Bot] ${botMsg.content}`);
+
+      // Auto-open escalation form after a moment
+      setTimeout(() => {
+        openEscalation();
+      }, 1200);
+      return;
+    }
+
     setIsTyping(true);
 
     try {
@@ -283,6 +497,8 @@ export default function ChatWidget() {
           timestamp: new Date(),
         },
       ]);
+      // Save AI reply to session for context
+      upsertSessionMessage(sessionId, "admin", `[AI Bot] ${reply}`);
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -301,21 +517,50 @@ export default function ChatWidget() {
 
   async function submitEscalation(e: React.FormEvent) {
     e.preventDefault();
-    if (!actor || !escalationName || !escalationEmail) return;
+    if (!escalationName || !escalationEmail) return;
 
     setIsSubmitting(true);
     try {
-      await actor.addCustomDesignRequest(
+      // Mark session as escalated with customer info
+      upsertSessionMessage(
+        sessionId,
+        "customer",
+        `[HUMAN REQUESTED] Name: ${escalationName}, Email: ${escalationEmail}. Message: ${escalationMessage}`,
         escalationName,
         escalationEmail,
-        "Chat Escalation",
-        escalationMessage,
-        "",
-        attachedFiles.map((f) => f.name),
-        new Date().toISOString(),
-        true,
+        true, // isEscalated
       );
+
+      // Also try to save via actor if available
+      if (actor) {
+        try {
+          await actor.addCustomDesignRequest(
+            escalationName,
+            escalationEmail,
+            "Chat Escalation",
+            escalationMessage,
+            "",
+            attachedFiles.map((f) => f.name),
+            new Date().toISOString(),
+            true,
+          );
+        } catch {
+          // ignore backend error, we already saved to localStorage
+        }
+      }
+
       setEscalationSent(true);
+      setHumanMode(true);
+
+      // Add a message in the chat indicating human mode is active
+      const humanWaitMsg: ChatMessage = {
+        id: generateId(),
+        role: "assistant",
+        content:
+          "Your request has been received! A MEGATRX team member will join this chat shortly. You'll see their replies appear here directly.",
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, humanWaitMsg]);
     } catch {
       setEscalationSent(true);
     } finally {
@@ -329,6 +574,11 @@ export default function ChatWidget() {
       sendMessage();
     }
   }
+
+  // Logo source with fallback chain
+  const logoSrc =
+    savedLogo ||
+    "/assets/uploads/Rebellious-Lettermark-for-Music-Brand-MEGATRAX-3-1.PNG";
 
   return (
     <>
@@ -344,6 +594,7 @@ export default function ChatWidget() {
             onClick={() => setIsOpen(true)}
             className="fixed bottom-6 right-6 z-[100] w-14 h-14 rounded-full bg-primary shadow-lg shadow-primary/30 flex items-center justify-center hover:scale-110 transition-transform"
             aria-label="Open chat"
+            data-ocid="chat.open_modal_button"
           >
             <MessageSquare className="w-6 h-6 text-primary-foreground" />
             <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-background" />
@@ -378,7 +629,7 @@ export default function ChatWidget() {
 
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 bg-primary text-primary-foreground shrink-0">
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2.5 flex-1 min-w-0">
                 {view === "escalation" && (
                   <button
                     type="button"
@@ -389,44 +640,50 @@ export default function ChatWidget() {
                     <ArrowLeft className="w-4 h-4" />
                   </button>
                 )}
-                <div className="w-8 h-8 rounded-full bg-primary-foreground/20 flex items-center justify-center overflow-hidden">
+                <div className="w-8 h-8 rounded-full bg-primary-foreground/20 flex items-center justify-center overflow-hidden shrink-0">
                   <img
-                    src={
-                      savedLogo ||
-                      "/assets/uploads/Rebellious-Lettermark-for-Music-Brand-MEGATRAX-3-1.PNG"
-                    }
+                    src={logoSrc}
                     alt="MEGATRX"
                     className="w-full h-full object-contain"
                     onError={(e) => {
-                      e.currentTarget.style.display = "none";
-                      const parent = e.currentTarget.parentElement;
-                      if (parent) {
-                        const icon = document.createElement("span");
-                        icon.innerHTML =
-                          '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>';
-                        parent.appendChild(icon);
+                      const el = e.currentTarget;
+                      if (!el.dataset.fallback) {
+                        el.dataset.fallback = "1";
+                        el.src =
+                          "/assets/uploads/Rebellious-Lettermark-for-Music-Brand-MEGATRAX-4-2.PNG";
+                      } else {
+                        el.style.display = "none";
                       }
                     }}
                   />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm font-bold tracking-tight">
                     MEGATRX Support
                   </p>
-                  <p className="text-xs opacity-70">
-                    {view === "escalation"
-                      ? "Contact a human"
-                      : "Typically replies instantly"}
+                  <p className="text-xs opacity-70 truncate">
+                    {humanMode
+                      ? "Connected to a real person"
+                      : view === "escalation"
+                        ? "Contact a human"
+                        : "Typically replies instantly"}
                   </p>
                 </div>
-                <span className="ml-auto mr-2 text-[10px] font-mono bg-primary-foreground/20 px-1.5 py-0.5 rounded uppercase tracking-wider">
-                  AI
-                </span>
+                {humanMode ? (
+                  <span className="ml-auto mr-2 text-[10px] font-mono bg-green-500/30 px-1.5 py-0.5 rounded uppercase tracking-wider flex items-center gap-1 shrink-0">
+                    <UserCheck className="w-3 h-3" />
+                    HUMAN
+                  </span>
+                ) : (
+                  <span className="ml-auto mr-2 text-[10px] font-mono bg-primary-foreground/20 px-1.5 py-0.5 rounded uppercase tracking-wider shrink-0">
+                    AI
+                  </span>
+                )}
               </div>
               <button
                 type="button"
                 onClick={() => setIsOpen(false)}
-                className="hover:opacity-80 transition-opacity"
+                className="hover:opacity-80 transition-opacity ml-2 shrink-0"
                 aria-label="Close chat"
               >
                 <X className="w-4 h-4" />
@@ -444,8 +701,14 @@ export default function ChatWidget() {
                       className={`flex gap-2 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
                     >
                       {msg.role !== "user" && (
-                        <div className="w-7 h-7 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center shrink-0 mt-0.5">
-                          <Bot className="w-3.5 h-3.5 text-primary" />
+                        <div
+                          className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${msg.isHuman ? "bg-green-500/20 border border-green-500/40" : "bg-primary/20 border border-primary/30"}`}
+                        >
+                          {msg.isHuman ? (
+                            <UserCheck className="w-3.5 h-3.5 text-green-500" />
+                          ) : (
+                            <Bot className="w-3.5 h-3.5 text-primary" />
+                          )}
                         </div>
                       )}
                       {msg.role === "user" && (
@@ -453,14 +716,24 @@ export default function ChatWidget() {
                           <User className="w-3.5 h-3.5 text-muted-foreground" />
                         </div>
                       )}
-                      <div
-                        className={`max-w-[75%] rounded-xl px-3 py-2 text-sm leading-relaxed ${
-                          msg.role === "user"
-                            ? "bg-primary text-primary-foreground rounded-tr-sm"
-                            : "bg-muted text-foreground rounded-tl-sm"
-                        }`}
-                      >
-                        {msg.content}
+                      <div className="flex flex-col gap-0.5 max-w-[75%]">
+                        {msg.isHuman && msg.role === "assistant" && (
+                          <span className="text-[10px] font-mono text-green-500 px-1 flex items-center gap-1">
+                            <UserCheck className="w-2.5 h-2.5" />
+                            MEGATRX Team (Real Person)
+                          </span>
+                        )}
+                        <div
+                          className={`rounded-xl px-3 py-2 text-sm leading-relaxed ${
+                            msg.role === "user"
+                              ? "bg-primary text-primary-foreground rounded-tr-sm"
+                              : msg.isHuman
+                                ? "bg-green-500/10 border border-green-500/20 text-foreground rounded-tl-sm"
+                                : "bg-muted text-foreground rounded-tl-sm"
+                          }`}
+                        >
+                          {msg.content}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -476,19 +749,6 @@ export default function ChatWidget() {
                         <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce [animation-delay:150ms]" />
                         <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce [animation-delay:300ms]" />
                       </div>
-                    </div>
-                  )}
-
-                  {/* Talk to human button — shown after greeting */}
-                  {messages.length === 1 && !isTyping && (
-                    <div className="flex justify-center pt-1">
-                      <button
-                        type="button"
-                        onClick={openEscalation}
-                        className="text-xs text-muted-foreground hover:text-primary transition-colors underline underline-offset-2"
-                      >
-                        Talk to a human instead
-                      </button>
                     </div>
                   )}
 
@@ -553,9 +813,14 @@ export default function ChatWidget() {
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       onKeyDown={handleKeyDown}
-                      placeholder="Ask me anything..."
+                      placeholder={
+                        humanMode
+                          ? "Send a message to the MEGATRX team..."
+                          : "Ask me anything..."
+                      }
                       className="flex-1 bg-background/50 border-border text-sm h-9"
                       disabled={isTyping}
+                      data-ocid="chat.input"
                     />
                     <button
                       type="button"
@@ -566,6 +831,7 @@ export default function ChatWidget() {
                       }
                       className="text-primary hover:text-primary/80 transition-colors disabled:opacity-30 shrink-0"
                       aria-label="Send message"
+                      data-ocid="chat.primary_button"
                     >
                       {isTyping ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -574,25 +840,34 @@ export default function ChatWidget() {
                       )}
                     </button>
                   </div>
-                  <div className="flex items-center justify-between mt-2">
-                    <button
-                      type="button"
-                      onClick={openEscalation}
-                      className="text-[11px] text-muted-foreground hover:text-primary transition-colors"
-                    >
-                      👤 Talk to a human
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsOpen(false);
-                        openModal();
-                      }}
-                      className="text-[11px] text-primary hover:text-primary/80 transition-colors"
-                    >
-                      ✏️ Custom design request
-                    </button>
-                  </div>
+                  {!humanMode && (
+                    <div className="flex items-center justify-between mt-2">
+                      <button
+                        type="button"
+                        onClick={openEscalation}
+                        className="text-[11px] text-muted-foreground hover:text-primary transition-colors"
+                        data-ocid="chat.secondary_button"
+                      >
+                        👤 Talk to a human
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsOpen(false);
+                          openModal();
+                        }}
+                        className="text-[11px] text-primary hover:text-primary/80 transition-colors"
+                      >
+                        ✏️ Custom design request
+                      </button>
+                    </div>
+                  )}
+                  {humanMode && (
+                    <p className="text-[10px] text-green-500 mt-1.5 font-mono flex items-center gap-1">
+                      <UserCheck className="w-3 h-3" />
+                      You are chatting with a real MEGATRX team member
+                    </p>
+                  )}
                 </div>
               </>
             )}
@@ -603,15 +878,15 @@ export default function ChatWidget() {
                 {escalationSent ? (
                   <div className="flex flex-col items-center justify-center h-full text-center gap-4">
                     <div className="w-14 h-14 rounded-full bg-green-500/20 border border-green-500/30 flex items-center justify-center">
-                      <User className="w-7 h-7 text-green-500" />
+                      <UserCheck className="w-7 h-7 text-green-500" />
                     </div>
                     <div>
                       <p className="font-bold text-foreground mb-1">
                         Request Sent!
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        A MEGATRX team member will reach out to you within 24
-                        hours.
+                        A real MEGATRX team member will join this chat. Their
+                        replies will appear directly in the chat window.
                       </p>
                     </div>
                     <Button
@@ -632,9 +907,15 @@ export default function ChatWidget() {
                 ) : (
                   <form onSubmit={submitEscalation} className="space-y-3">
                     <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <UserCheck className="w-4 h-4 text-primary" />
+                        <p className="font-semibold text-sm text-foreground">
+                          Connect with a Real Person
+                        </p>
+                      </div>
                       <p className="text-sm text-muted-foreground mb-4">
-                        Fill out the form below and a team member will get back
-                        to you within 24 hours.
+                        Fill out the form below. A real MEGATRX team member —
+                        not a bot — will get back to you directly.
                       </p>
                     </div>
 
@@ -648,6 +929,7 @@ export default function ChatWidget() {
                         placeholder="Your name"
                         required
                         className="bg-background/50 h-9 text-sm"
+                        data-ocid="escalation.input"
                       />
                     </div>
 
@@ -662,6 +944,7 @@ export default function ChatWidget() {
                         placeholder="your@email.com"
                         required
                         className="bg-background/50 h-9 text-sm"
+                        data-ocid="escalation.input"
                       />
                     </div>
 
@@ -672,8 +955,9 @@ export default function ChatWidget() {
                       <Textarea
                         value={escalationMessage}
                         onChange={(e) => setEscalationMessage(e.target.value)}
-                        className="bg-background/50 text-sm min-h-[100px] resize-none"
+                        className="bg-background/50 text-sm min-h-[80px] resize-none"
                         placeholder="Describe what you need help with..."
+                        data-ocid="escalation.textarea"
                       />
                     </div>
 
@@ -699,12 +983,15 @@ export default function ChatWidget() {
                       disabled={
                         isSubmitting || !escalationName || !escalationEmail
                       }
-                      className="w-full"
+                      className="w-full gap-2"
+                      data-ocid="escalation.submit_button"
                     >
                       {isSubmitting ? (
-                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                      ) : null}
-                      Submit Request
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <UserCheck className="w-4 h-4" />
+                      )}
+                      Connect Me with a Real Person
                     </Button>
                   </form>
                 )}

@@ -67,19 +67,49 @@ function LogoGenerator() {
     setIsLoading(true);
     setGeneratedUrl("");
     try {
-      const prompt = `professional logo for "${brandName}", ${style} style, ${colors || "versatile"} color scheme, clean vector design, white background, high quality, sharp edges, no text artifacts`;
-      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=512&height=512&nologo=true&seed=${Date.now()}`;
-      // Pre-load image to confirm it loaded
+      const prompt = `professional logo design for brand "${brandName}", ${style} style, ${colors || "bold versatile"} color scheme, clean vector design, white background, high quality, sharp edges, graphic design`;
+      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&seed=${Date.now()}&enhance=true`;
+      // Pre-load image with generous timeout
       await new Promise<void>((resolve, reject) => {
         const img = new window.Image();
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error("Failed to load image"));
+        img.crossOrigin = "anonymous";
+        const timeout = setTimeout(() => reject(new Error("Timeout")), 30000);
+        img.onload = () => {
+          clearTimeout(timeout);
+          resolve();
+        };
+        img.onerror = () => {
+          clearTimeout(timeout);
+          reject(new Error("Failed to load image"));
+        };
         img.src = url;
       });
       setGeneratedUrl(url);
       toast.success("Logo generated!");
     } catch {
-      toast.error("Generation failed. Please try again.");
+      // Retry with simpler prompt
+      try {
+        const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(`${brandName} logo, ${style}, white background`)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 999999)}`;
+        await new Promise<void>((resolve, reject) => {
+          const img = new window.Image();
+          const timeout = setTimeout(() => reject(new Error("Timeout")), 25000);
+          img.onload = () => {
+            clearTimeout(timeout);
+            resolve();
+          };
+          img.onerror = () => {
+            clearTimeout(timeout);
+            reject(new Error("Failed"));
+          };
+          img.src = url;
+        });
+        setGeneratedUrl(url);
+        toast.success("Logo generated!");
+      } catch {
+        toast.error(
+          "Generation failed. The AI service may be busy — please try again.",
+        );
+      }
     } finally {
       setIsLoading(false);
     }
@@ -209,9 +239,9 @@ function SocialPostGenerator() {
   const [isLoading, setIsLoading] = useState(false);
 
   const PLATFORM_SIZES: Record<string, { w: number; h: number }> = {
-    Instagram: { w: 512, h: 512 },
-    TikTok: { w: 512, h: 512 },
-    Facebook: { w: 512, h: 268 },
+    Instagram: { w: 1024, h: 1024 },
+    TikTok: { w: 768, h: 1024 },
+    Facebook: { w: 1024, h: 536 },
   };
 
   async function handleGenerate() {
@@ -222,19 +252,54 @@ function SocialPostGenerator() {
     setIsLoading(true);
     setGeneratedUrl("");
     try {
-      const size = PLATFORM_SIZES[platform] ?? { w: 512, h: 512 };
-      const prompt = `${platform} social media post for brand "${brandName}", ${postStyle} aesthetic, text: "${message || "Check us out!"}", modern graphic design, ${platform} optimized layout, professional marketing material`;
-      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${size.w}&height=${size.h}&nologo=true&seed=${Date.now()}`;
+      const size = PLATFORM_SIZES[platform] ?? { w: 1024, h: 1024 };
+      const prompt = `${platform} social media post for brand "${brandName}", ${postStyle} aesthetic, text overlay: "${message || "Check us out!"}", modern graphic design, ${platform} optimized layout, professional marketing material, bold typography, eye-catching`;
+      const seed = Date.now();
+      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${size.w}&height=${size.h}&nologo=true&seed=${seed}&enhance=true`;
+
+      // Try with a generous timeout (Pollinations can be slow)
       await new Promise<void>((resolve, reject) => {
         const img = new window.Image();
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error("Failed"));
+        img.crossOrigin = "anonymous";
+        const timeout = setTimeout(() => reject(new Error("Timeout")), 30000);
+        img.onload = () => {
+          clearTimeout(timeout);
+          resolve();
+        };
+        img.onerror = () => {
+          clearTimeout(timeout);
+          reject(new Error("Failed"));
+        };
         img.src = url;
       });
       setGeneratedUrl(url);
       toast.success("Post graphic generated!");
     } catch {
-      toast.error("Generation failed. Please try again.");
+      // Try alternative seed if first fails
+      try {
+        const size = PLATFORM_SIZES[platform] ?? { w: 1024, h: 1024 };
+        const prompt = `branded ${platform} graphic for "${brandName}", ${postStyle} colors, marketing post`;
+        const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${size.w}&height=${size.h}&nologo=true&seed=${Math.floor(Math.random() * 999999)}`;
+        await new Promise<void>((resolve, reject) => {
+          const img = new window.Image();
+          const timeout = setTimeout(() => reject(new Error("Timeout")), 25000);
+          img.onload = () => {
+            clearTimeout(timeout);
+            resolve();
+          };
+          img.onerror = () => {
+            clearTimeout(timeout);
+            reject(new Error("Failed"));
+          };
+          img.src = url;
+        });
+        setGeneratedUrl(url);
+        toast.success("Post graphic generated!");
+      } catch {
+        toast.error(
+          "Generation failed. The AI service may be busy — please try again in a moment.",
+        );
+      }
     } finally {
       setIsLoading(false);
     }
@@ -820,7 +885,7 @@ function MockupCreator() {
     try {
       const template = PRODUCT_TEMPLATES[productType];
       const prompt = `Professional product mockup: custom graphic design ${template.overlay}, high quality commercial photography, white/neutral studio background, sharp focus, product photography`;
-      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=512&height=512&nologo=true&seed=${Date.now()}`;
+      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&seed=${Date.now()}`;
       await new Promise<void>((resolve, reject) => {
         const img = new window.Image();
         img.onload = () => resolve();
@@ -1000,7 +1065,7 @@ export function AIStudioTab() {
         "Social Media": "social media graphic, bold typography, vibrant colors",
       };
       const fullPrompt = `${prompt}, ${styleHints[imageStyle] ?? ""}`;
-      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}&width=512&height=512&nologo=true&seed=${Date.now()}`;
+      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1024&height=1024&nologo=true&seed=${Date.now()}`;
       await new Promise<void>((resolve, reject) => {
         const img = new window.Image();
         img.onload = () => resolve();

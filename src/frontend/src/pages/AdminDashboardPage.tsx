@@ -74,6 +74,7 @@ import {
   Trash2,
   Truck,
   User,
+  UserCheck,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -2789,6 +2790,417 @@ function SettingsTab() {
   );
 }
 
+// ─── Live Chat Tab ────────────────────────────────────────────────────────────
+
+interface LiveChatSession {
+  id: string;
+  customerName: string;
+  customerEmail?: string;
+  lastSeen: string;
+  isEscalated?: boolean;
+  messages: Array<{
+    role: "customer" | "admin";
+    content: string;
+    timestamp: string;
+    isHuman?: boolean;
+  }>;
+}
+
+function loadLiveChatSessions(): LiveChatSession[] {
+  try {
+    const raw = localStorage.getItem("megatrx_live_chat_sessions");
+    return raw ? (JSON.parse(raw) as LiveChatSession[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLiveChatSessions(sessions: LiveChatSession[]) {
+  localStorage.setItem("megatrx_live_chat_sessions", JSON.stringify(sessions));
+}
+
+function LiveChatTab() {
+  const [sessions, setSessions] = useState<LiveChatSession[]>(() =>
+    loadLiveChatSessions(),
+  );
+  const [selectedId, setSelectedId] = useState<string | null>(() => {
+    const s = loadLiveChatSessions();
+    // Prioritize escalated sessions
+    const escalated = s.find((x) => x.isEscalated);
+    return escalated?.id ?? (s.length > 0 ? s[0].id : null);
+  });
+  const [reply, setReply] = useState("");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Poll for new messages every 3 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const updated = loadLiveChatSessions();
+      setSessions(updated);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  });
+
+  const selectedSession = sessions.find((s) => s.id === selectedId) ?? null;
+  const escalatedCount = sessions.filter((s) => s.isEscalated).length;
+
+  function sendAdminReply() {
+    if (!reply.trim() || !selectedId) return;
+    const allSessions = loadLiveChatSessions();
+    const sessionIndex = allSessions.findIndex((s) => s.id === selectedId);
+    if (sessionIndex === -1) return;
+
+    allSessions[sessionIndex].messages.push({
+      role: "admin",
+      content: reply.trim(),
+      timestamp: new Date().toISOString(),
+      isHuman: true, // Mark as real human reply so customer sees "Real Person" badge
+    });
+    saveLiveChatSessions(allSessions);
+    setSessions([...allSessions]);
+    setReply("");
+  }
+
+  function clearSession(id: string) {
+    if (!confirm("Delete this chat session?")) return;
+    const updated = sessions.filter((s) => s.id !== id);
+    saveLiveChatSessions(updated);
+    setSessions(updated);
+    if (selectedId === id) setSelectedId(updated[0]?.id ?? null);
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <p className="text-sm text-muted-foreground font-mono">
+          {sessions.length} active session{sessions.length !== 1 ? "s" : ""}
+        </p>
+        <span className="text-xs font-mono bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded animate-pulse">
+          Live
+        </span>
+        {escalatedCount > 0 && (
+          <span className="text-xs font-mono bg-red-500/20 text-red-400 border border-red-500/30 px-2 py-0.5 rounded font-bold">
+            {escalatedCount} HUMAN REQUEST{escalatedCount !== 1 ? "S" : ""} —
+            REPLY NEEDED
+          </span>
+        )}
+      </div>
+
+      {/* Escalation alert banner */}
+      {escalatedCount > 0 && (
+        <div
+          className="flex items-start gap-3 p-4 rounded-lg bg-red-500/10 border border-red-500/30"
+          data-ocid="livechat.error_state"
+        >
+          <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-bold text-red-400 text-sm">
+              {escalatedCount} customer{escalatedCount !== 1 ? "s" : ""}{" "}
+              requested to talk to a real person!
+            </p>
+            <p className="text-xs text-red-400/80 mt-0.5">
+              These customers typed "talk to a human" or similar. Select their
+              session below and reply — your message will appear directly in
+              their chat widget as coming from a REAL PERSON (not the AI bot).
+            </p>
+          </div>
+        </div>
+      )}
+
+      {sessions.length === 0 ? (
+        <Card data-ocid="livechat.empty_state">
+          <CardContent className="py-16 text-center text-muted-foreground">
+            <MessageSquare className="w-10 h-10 mx-auto mb-3 opacity-30" />
+            <p className="font-mono text-sm">No active chat sessions</p>
+            <p className="text-xs mt-2 opacity-60">
+              When customers open the chat widget and send messages, their
+              sessions will appear here so you can reply in real time.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[580px]">
+          {/* Session list */}
+          <Card className="overflow-hidden">
+            <CardHeader className="py-3 px-4 border-b border-border">
+              <CardTitle className="text-sm font-mono uppercase tracking-wider">
+                Sessions
+              </CardTitle>
+            </CardHeader>
+            <div className="overflow-y-auto h-[calc(100%-52px)]">
+              {/* Sort escalated first */}
+              {[...sessions]
+                .sort(
+                  (a, b) => (b.isEscalated ? 1 : 0) - (a.isEscalated ? 1 : 0),
+                )
+                .map((session) => {
+                  const lastMsg = session.messages[session.messages.length - 1];
+                  // Only count real customer messages as "unread"
+                  const lastCustomerMsg = [...session.messages]
+                    .reverse()
+                    .find(
+                      (m) =>
+                        m.role === "customer" &&
+                        !m.content.startsWith("[AI Bot]") &&
+                        !m.content.startsWith("[HUMAN REQUESTED]"),
+                    );
+                  const lastAdminMsg = [...session.messages]
+                    .reverse()
+                    .find((m) => m.role === "admin" && m.isHuman);
+                  const hasUnread =
+                    lastCustomerMsg &&
+                    (!lastAdminMsg ||
+                      new Date(lastCustomerMsg.timestamp) >
+                        new Date(lastAdminMsg.timestamp));
+                  const isSelected = session.id === selectedId;
+                  return (
+                    <button
+                      key={session.id}
+                      type="button"
+                      onClick={() => setSelectedId(session.id)}
+                      className={`w-full text-left px-4 py-3 border-b border-border transition-colors ${isSelected ? "bg-primary/10 border-l-2 border-l-primary" : session.isEscalated ? "bg-red-500/5 border-l-2 border-l-red-500 hover:bg-red-500/10" : "hover:bg-muted/40"}`}
+                      data-ocid="livechat.item.1"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span
+                          className={`font-semibold text-sm truncate ${hasUnread && !isSelected ? "text-primary" : ""}`}
+                        >
+                          {session.customerName || "Customer"}
+                        </span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {session.isEscalated && (
+                            <span className="text-[9px] font-mono bg-red-500/20 text-red-400 border border-red-500/30 px-1 py-0.5 rounded uppercase">
+                              HUMAN
+                            </span>
+                          )}
+                          {hasUnread && !isSelected && (
+                            <span className="w-2 h-2 rounded-full bg-primary" />
+                          )}
+                        </div>
+                      </div>
+                      {session.customerEmail && (
+                        <p className="text-[10px] text-muted-foreground/70 font-mono truncate">
+                          {session.customerEmail}
+                        </p>
+                      )}
+                      {lastMsg && (
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">
+                          {lastMsg.role === "admin" ? "You: " : ""}
+                          {lastMsg.content
+                            .replace(/^\[AI Bot\] /, "")
+                            .replace(/^\[HUMAN REQUESTED\] /, "")
+                            .slice(0, 60)}
+                        </p>
+                      )}
+                      <p className="text-[10px] text-muted-foreground/60 mt-0.5 font-mono">
+                        {new Date(session.lastSeen).toLocaleTimeString()}
+                      </p>
+                    </button>
+                  );
+                })}
+            </div>
+          </Card>
+
+          {/* Chat panel */}
+          <Card className="lg:col-span-2 flex flex-col overflow-hidden">
+            {selectedSession ? (
+              <>
+                {/* Header */}
+                <div
+                  className={`flex items-center justify-between px-4 py-3 border-b border-border shrink-0 ${selectedSession.isEscalated ? "bg-red-500/5" : ""}`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${selectedSession.isEscalated ? "bg-red-500/20 border border-red-500/30" : "bg-primary/20 border border-primary/30"}`}
+                    >
+                      <User
+                        className={`w-4 h-4 ${selectedSession.isEscalated ? "text-red-400" : "text-primary"}`}
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-semibold text-sm">
+                          {selectedSession.customerName || "Customer"}
+                        </p>
+                        {selectedSession.isEscalated && (
+                          <span className="text-[10px] font-mono bg-red-500/20 text-red-400 border border-red-500/30 px-1.5 py-0.5 rounded uppercase tracking-wider flex items-center gap-1">
+                            <UserCheck className="w-3 h-3" />
+                            Requested Real Person
+                          </span>
+                        )}
+                      </div>
+                      {selectedSession.customerEmail && (
+                        <a
+                          href={`mailto:${selectedSession.customerEmail}`}
+                          className="text-xs text-primary font-mono hover:underline"
+                        >
+                          {selectedSession.customerEmail}
+                        </a>
+                      )}
+                      <p className="text-xs text-muted-foreground font-mono">
+                        {selectedSession.messages.length} messages
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => clearSession(selectedSession.id)}
+                    className="text-muted-foreground hover:text-destructive h-8 w-8 p-0 shrink-0"
+                    data-ocid="livechat.delete_button"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+
+                {/* Escalation notice */}
+                {selectedSession.isEscalated && (
+                  <div className="px-4 py-2 bg-red-500/10 border-b border-red-500/20 flex items-center gap-2">
+                    <UserCheck className="w-4 h-4 text-red-400 shrink-0" />
+                    <p className="text-xs text-red-400 font-mono">
+                      This customer requested a REAL PERSON. Your replies will
+                      show as "MEGATRX Team (Real Person)" in their chat — NOT
+                      the AI bot.
+                    </p>
+                  </div>
+                )}
+
+                {/* Messages */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                  {selectedSession.messages
+                    .filter(
+                      (msg) => !msg.content.startsWith("[HUMAN REQUESTED]"),
+                    )
+                    .map((msg, i) => {
+                      const isAiBot = msg.content.startsWith("[AI Bot]");
+                      const displayContent = msg.content.replace(
+                        /^\[AI Bot\] /,
+                        "",
+                      );
+                      return (
+                        <div
+                          key={`msg-${i}-${msg.timestamp}`}
+                          className={`flex gap-2 ${msg.role === "admin" ? "flex-row-reverse" : ""}`}
+                        >
+                          <div
+                            className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                              msg.role === "admin" && !isAiBot
+                                ? "bg-primary/20 border border-primary/30"
+                                : msg.role === "admin" && isAiBot
+                                  ? "bg-muted border border-border"
+                                  : "bg-muted border border-border"
+                            }`}
+                          >
+                            {msg.role === "admin" && !isAiBot ? (
+                              <Shield className="w-3.5 h-3.5 text-primary" />
+                            ) : msg.role === "admin" && isAiBot ? (
+                              <Bot className="w-3.5 h-3.5 text-muted-foreground" />
+                            ) : (
+                              <User className="w-3.5 h-3.5 text-muted-foreground" />
+                            )}
+                          </div>
+                          <div className="flex flex-col gap-0.5 max-w-[75%]">
+                            {msg.role === "admin" && isAiBot && (
+                              <span className="text-[9px] font-mono text-muted-foreground/60 px-1">
+                                AI Bot
+                              </span>
+                            )}
+                            {msg.role === "admin" && !isAiBot && (
+                              <span className="text-[9px] font-mono text-primary px-1 flex items-center gap-1">
+                                <Shield className="w-2 h-2" /> You (Human)
+                              </span>
+                            )}
+                            <div
+                              className={`rounded-xl px-3 py-2 text-sm leading-relaxed ${
+                                msg.role === "admin" && !isAiBot
+                                  ? "bg-primary text-primary-foreground rounded-tr-sm"
+                                  : msg.role === "admin" && isAiBot
+                                    ? "bg-muted/50 text-muted-foreground rounded-tr-sm text-xs"
+                                    : "bg-muted text-foreground rounded-tl-sm"
+                              }`}
+                            >
+                              {displayContent}
+                            </div>
+                            <span className="text-[10px] text-muted-foreground/60 font-mono px-1">
+                              {new Date(msg.timestamp).toLocaleTimeString()}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {/* Reply input */}
+                <div
+                  className={`border-t border-border p-3 shrink-0 ${selectedSession.isEscalated ? "bg-primary/5" : ""}`}
+                >
+                  {selectedSession.isEscalated && (
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <UserCheck className="w-3.5 h-3.5 text-primary" />
+                      <p className="text-[11px] text-primary font-mono font-semibold">
+                        REAL PERSON MODE — Customer will see your message with a
+                        "Real Person" badge
+                      </p>
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <Input
+                      value={reply}
+                      onChange={(e) => setReply(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          sendAdminReply();
+                        }
+                      }}
+                      placeholder={
+                        selectedSession.isEscalated
+                          ? "Type your reply as a real person..."
+                          : "Type your reply..."
+                      }
+                      className="flex-1 bg-background/50 text-sm h-9"
+                      data-ocid="livechat.input"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={sendAdminReply}
+                      disabled={!reply.trim()}
+                      className="shrink-0 gap-1.5"
+                      data-ocid="livechat.primary_button"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      Send
+                    </Button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/60 mt-1.5 font-mono">
+                    {selectedSession.isEscalated
+                      ? "Your reply appears in the customer's chat as coming from a real MEGATRX team member"
+                      : "Your reply will appear in the customer's chat widget automatically"}
+                  </p>
+                </div>
+              </>
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-muted-foreground">
+                <div className="text-center">
+                  <MessageSquare className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm font-mono">Select a session</p>
+                </div>
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── AI Assistant Tab ─────────────────────────────────────────────────────────
 
 interface AdminChatMessage {
@@ -2812,14 +3224,13 @@ async function getAdminAIResponse(
   productCount: number,
 ): Promise<string> {
   const contextData = `Store summary: ${orderCount} orders, ${designCount} design requests, ${productCount} products.`;
-  const fullPrompt = `You are an AI assistant for the MEGATRX admin dashboard. ${contextData} Answer this admin question concisely: ${question}`;
+  const fullPrompt = `You are an admin AI assistant for MEGATRX graphic design store. ${contextData} Answer this question concisely and helpfully: ${question}`;
   const encodedPrompt = encodeURIComponent(fullPrompt);
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const timeout = setTimeout(() => controller.abort(), 12000);
     const res = await fetch(`https://text.pollinations.ai/${encodedPrompt}`, {
-      method: "GET",
       signal: controller.signal,
     });
     clearTimeout(timeout);
@@ -3174,6 +3585,11 @@ export default function AdminDashboardPage() {
                   icon: MessageSquare,
                   label: "Chat Sessions",
                 },
+                {
+                  value: "live-chat",
+                  icon: MessageSquare,
+                  label: "Live Chat",
+                },
                 { value: "content", icon: FileText, label: "Content" },
                 { value: "integrations", icon: Store, label: "Shopify" },
                 { value: "printify", icon: Printer, label: "Printify" },
@@ -3215,6 +3631,10 @@ export default function AdminDashboardPage() {
 
           <TabsContent value="chat-sessions">
             <ChatSessionsTab />
+          </TabsContent>
+
+          <TabsContent value="live-chat">
+            <LiveChatTab />
           </TabsContent>
 
           <TabsContent value="content">
