@@ -41,10 +41,10 @@ All orders are processed within 1-2 business days. You will receive tracking inf
                   <Package className="w-6 h-6 text-primary" />
                 </div>
                 <h3 className="text-sm font-semibold uppercase tracking-wider mb-1 font-mono">
-                  Free Shipping
+                  Calculated at Checkout
                 </h3>
                 <p className="text-xs text-muted-foreground">
-                  On orders over $50
+                  Standard $5.99 · Express $14.99
                 </p>
               </CardContent>
             </Card>

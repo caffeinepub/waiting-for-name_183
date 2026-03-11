@@ -70,6 +70,7 @@ import {
   Settings,
   Shield,
   ShoppingBag,
+  Sparkles,
   Store,
   Trash2,
   Truck,
@@ -3223,7 +3224,36 @@ async function getAdminAIResponse(
   designCount: number,
   productCount: number,
 ): Promise<string> {
-  const contextData = `Store summary: ${orderCount} orders, ${designCount} design requests, ${productCount} products.`;
+  // Build rich context from localStorage
+  let ordersContext = "";
+  let chatContext = "";
+  try {
+    const ordersRaw = localStorage.getItem("megatrx_orders");
+    if (ordersRaw) {
+      const orders = JSON.parse(ordersRaw);
+      ordersContext = `Orders (${orders.length}): ${orders
+        .slice(0, 5)
+        .map(
+          (o: Record<string, unknown>) =>
+            `#${o.id?.toString().slice(-4)} - ${o.customerName} - $${((Number(o.total) || 0) / 100).toFixed(2)} - ${o.status}`,
+        )
+        .join("; ")}`;
+    }
+  } catch {}
+  try {
+    const sessionsRaw = localStorage.getItem("megatrx_live_chat_sessions");
+    if (sessionsRaw) {
+      const sessions = JSON.parse(sessionsRaw);
+      chatContext = `Chat sessions (${sessions.length}): ${sessions
+        .slice(0, 5)
+        .map(
+          (s: Record<string, unknown>) =>
+            `${s.customerName} (${s.customerEmail || "no email"}) - ${s.isEscalated ? "WANTS HUMAN" : "AI chat"}`,
+        )
+        .join("; ")}`;
+    }
+  } catch {}
+  const contextData = `Store summary: ${orderCount} orders, ${designCount} design requests, ${productCount} products. ${ordersContext} ${chatContext}`;
   const fullPrompt = `You are an admin AI assistant for MEGATRX graphic design store. ${contextData} Answer this question concisely and helpfully: ${question}`;
   const encodedPrompt = encodeURIComponent(fullPrompt);
 
@@ -3453,6 +3483,165 @@ function AIAssistantTab() {
 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
+// ─── TRX AI Premium Tab ───────────────────────────────────────────────────────
+
+function TRXAIPremiumTab() {
+  const credits = (() => {
+    try {
+      const val = localStorage.getItem("megatrx_trx_credits");
+      return val ? Number(val) : 1000;
+    } catch {
+      return 1000;
+    }
+  })();
+
+  return (
+    <div className="max-w-2xl space-y-6">
+      {/* Header */}
+      <div className="flex items-center gap-3 p-5 rounded-xl border border-amber-500/30 bg-amber-500/5">
+        <Sparkles className="w-8 h-8 text-amber-400 shrink-0" />
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <h2 className="text-lg font-bold tracking-tighter">
+              TRX AI Premium
+            </h2>
+            <span className="text-xs font-mono bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded uppercase tracking-wider">
+              BETA
+            </span>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Your personal high-powered AI creation suite
+          </p>
+        </div>
+      </div>
+
+      {/* Admin free access banner */}
+      <div className="flex items-center gap-3 p-4 rounded-lg bg-green-500/10 border border-green-500/20">
+        <Shield className="w-5 h-5 text-green-400 shrink-0" />
+        <div>
+          <p className="font-semibold text-green-400 text-sm">
+            Admin Account — Free Access
+          </p>
+          <p className="text-xs text-green-400/70 mt-0.5">
+            As the store owner, you have unlimited TRX AI Premium access at no
+            cost.
+          </p>
+        </div>
+      </div>
+
+      {/* Credits */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-mono uppercase tracking-wider flex items-center gap-2">
+            <CreditCard className="w-4 h-4 text-primary" />
+            Credit Balance
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-end gap-2 mb-3">
+            <span className="text-4xl font-bold text-amber-400">
+              {credits.toLocaleString()}
+            </span>
+            <span className="text-muted-foreground font-mono mb-1">
+              credits
+            </span>
+          </div>
+          <div className="w-full bg-muted rounded-full h-2">
+            <div
+              className="bg-amber-400 h-2 rounded-full"
+              style={{ width: `${Math.min((credits / 1000) * 100, 100)}%` }}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground font-mono mt-2">
+            1,000 credits = free admin plan
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* Subscription tiers */}
+      <div>
+        <h3 className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3">
+          Subscription Plans (for customers)
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {[
+            {
+              name: "Basic",
+              price: "$9.99/mo",
+              credits: "50 credits",
+              color: "border-border",
+            },
+            {
+              name: "Pro",
+              price: "$19.99/mo",
+              credits: "200 credits",
+              color: "border-primary/50",
+              highlight: true,
+            },
+            {
+              name: "Unlimited",
+              price: "$49.99/mo",
+              credits: "∞ credits",
+              color: "border-amber-500/50",
+            },
+          ].map((tier) => (
+            <div
+              key={tier.name}
+              className={`p-4 rounded-xl border-2 ${tier.color} ${tier.highlight ? "bg-primary/5" : "bg-card"}`}
+            >
+              <p className="font-bold text-sm mb-1">{tier.name}</p>
+              <p className="text-xl font-mono text-primary mb-1">
+                {tier.price}
+              </p>
+              <p className="text-xs text-muted-foreground font-mono">
+                {tier.credits}
+              </p>
+              {tier.highlight && (
+                <span className="mt-2 inline-block text-[10px] font-mono bg-primary/20 text-primary border border-primary/30 px-1.5 py-0.5 rounded uppercase">
+                  Most Popular
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground font-mono mt-3 flex items-center gap-1">
+          <Sparkles className="w-3 h-3 text-amber-400" />
+          Coming Soon — Currently in Beta. Payment integration coming with
+          Stripe.
+        </p>
+      </div>
+
+      {/* Feature list */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-mono uppercase tracking-wider">
+            TRX AI Features
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="space-y-2">
+            {[
+              "High-resolution image generation (1024×1024+)",
+              "AI video generation (cinematic quality)",
+              "Logo creation with custom branding",
+              "Social post template auto-generation",
+              "Product mockup rendering",
+              "Priority support from MEGATRX team",
+              "Bulk generation (10+ at once)",
+              "Commercial use rights included",
+            ].map((feature) => (
+              <li key={feature} className="flex items-center gap-2 text-sm">
+                <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0" />
+                {feature}
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function AdminDashboardPage() {
   const navigate = useNavigate();
   const [notifPermission, setNotifPermission] =
@@ -3598,6 +3787,7 @@ export default function AdminDashboardPage() {
                 { value: "campaigns", icon: Mail, label: "Campaigns" },
                 { value: "ai", icon: Bot, label: "AI Assistant" },
                 { value: "aistudio", icon: Palette, label: "AI Studio" },
+                { value: "trxai", icon: Sparkles, label: "TRX AI" },
                 { value: "settings", icon: Settings, label: "Settings" },
               ].map(({ value, icon: Icon, label }) => (
                 <TabsTrigger
@@ -3667,6 +3857,9 @@ export default function AdminDashboardPage() {
 
           <TabsContent value="aistudio">
             <AIStudioTab />
+          </TabsContent>
+          <TabsContent value="trxai">
+            <TRXAIPremiumTab />
           </TabsContent>
 
           <TabsContent value="settings">

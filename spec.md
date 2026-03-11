@@ -1,36 +1,47 @@
-# Megatrax Graphic Designs
+# Megatrax Graphic Designs - Phase 1 Fix & Enhancement
 
 ## Current State
-- Full ecommerce site with shop, portfolio, admin dashboard, and chat widget
-- Products saved in localStorage via AdminDashboardPage ProductsTab
-- LocalProduct type: `{ id, name, description, price, category, imageUrls, stock }`
-- CustomizationModal shows size selector only for apparel categories (t-shirts, sweaters, hoodies) with hardcoded S/M/L/XL/XXL options
-- AI chatbot (ChatWidget.tsx) uses Pollinations.ai GET and POST endpoints with local fallbacks
-- Products and portfolio add/edit in admin via dialogs
+- Full ecommerce site with shop, portfolio, admin dashboard, chat widget, AI design tools
+- Products/portfolio save to localStorage (admin page shows 0 items even though shop/portfolio pages show old seeded+local data)
+- AI generators (logo, social media, mockup, background remover, color palette, video) on DesignToolsPage frequently fail or are very slow
+- Live chat (ChatWidget) has UX issues: AI bot can interrupt an active human conversation, scroll area is too small, messages are hard to read
+- Admin dashboard has Live Chat tab but the layout is cramped
+- No TRX AI Premium credits/subscription system
+- Free shipping is shown in some places
+- Admin AI assistant doesn't have access to full chat history data
 
 ## Requested Changes (Diff)
 
 ### Add
-- **Sizes/Variants field on LocalProduct** in admin: a comma-separated or tag-based input for admins to define available sizes per product (e.g. "iPhone 13, iPhone 14, iPhone 15 Pro" for cases; "S, M, L, XL" for shirts; "11oz, 15oz" for mugs)
-- **Size selector in CustomizationModal**: instead of hardcoded apparel-only sizes, always show a size dropdown when the product has `sizes` defined, populated with those product-specific sizes. If no sizes defined, hide the size field
-- **Better AI fallback**: improve the AI chatbot to use a more reliable endpoint and always have a robust local fallback that feels natural and responds to context
+- TRX AI Premium tab in admin: credit balance display, subscription toggle, "free for admin" badge
+- Video generator in DesignToolsPage using free API (pollinations video or similar), with paid API key slot
+- "Delete" button for each generated image in AI Studio/DesignTools history
+- More style/prompt options in all AI generators (style presets dropdown, resolution choice)
+- Generator switcher: allow toggling between Pollinations and a custom API key source
+- PWA manifest with push notification support (service worker prompt when added to home screen)
+- Shipping costs on all products (no free shipping label), competitive pricing shown at checkout
 
 ### Modify
-- `LocalProduct` interface: add optional `sizes: string[]` field
-- `ProductsTab` in AdminDashboardPage: add a "Sizes / Variants" input field in the add/edit product dialog. Users can type comma-separated values (e.g. "S, M, L, XL, XXL" or "iPhone 13, iPhone 14, iPhone 15 Pro Max") and they get split into an array on save
-- `CustomizationModal`: remove `APPAREL_CATEGORIES` check; instead check `product.sizes` (passed as a prop or read from localStorage). Show size dropdown when sizes exist, hide when empty
-- `ShopPage` and `ProductDetailPage`: pass `sizes` from the product data when opening the customization modal
-- `ChatWidget.tsx` `fetchAIResponse`: use a more reliable primary fetch with better timeout handling; expand local fallback responses to cover more topics
+- **Admin product/portfolio sync**: Admin page must load from localStorage (same source as shop/portfolio pages) and allow full CRUD there. Show count correctly.
+- **AI generators**: Switch primary endpoint to `https://image.pollinations.ai/prompt/{prompt}?width=1024&height=1024&nologo=true&enhance=true` with no content filtering params. Add retry logic (3 attempts). Social media generator fixed to use same reliable endpoint.
+- **ChatWidget**: 
+  - When in human-agent mode (admin has responded), AI bot must NOT inject responses
+  - Live chat scroll area enlarged (min-height 400px), font size 14px min, message bubbles styled like SMS (user=right blue, agent=left green, bot=left gray)
+  - Messages panel scrolls smoothly to bottom on new messages
+- **Admin Live Chat tab**: Larger message window, easier to scroll individual sessions, clearer "REAL PERSON MODE" indicator, session list shows latest message preview
+- **Admin AI Assistant**: Inject localStorage chat sessions, orders, design requests, and products as context in the system prompt so admin can ask questions about customer data
+- **ProductDetailPage**: Add shipping info section below description card (estimated delivery 5-10 business days, pricing table)
+- **DesignToolsPage**: Add delete button for recent generations, no-restriction mode (nologo, enhance params)
 
 ### Remove
-- Hardcoded `APPAREL_CATEGORIES` size gating in CustomizationModal (replaced by dynamic sizes from product data)
+- Any "Free Shipping" badges or labels from product cards and checkout
 
 ## Implementation Plan
-1. Update `LocalProduct` interface in AdminDashboardPage to include `sizes?: string[]`
-2. Add "Sizes / Variants" text input to the product add/edit form dialog (comma-separated), pre-populated when editing
-3. Update `handleSave` in ProductsTab to parse the sizes input into an array and store with the product
-4. Update `getLocalStorageProducts()` in ShopPage to pass `sizes` through in the mapped product shape
-5. Update `CustomizationModal` props to accept optional `sizes?: string[]`; replace `APPAREL_CATEGORIES` check with `sizes && sizes.length > 0` check; populate SelectItems dynamically from sizes array
-6. Update `openCustomizationModal` context/calls to pass `sizes` when opening the modal
-7. Fix ChatWidget `fetchAIResponse`: switch primary endpoint to `https://text.pollinations.ai/` with a well-formed POST body; improve local fallback with more response variety and remove the "having trouble connecting" error message on fallback
-8. Run validation
+1. Update AdminDashboardPage: fix product/portfolio tabs to read/write from localStorage and display correct counts
+2. Update ChatWidget: fix human-mode AI interruption bug, improve scroll/layout, SMS-style bubbles
+3. Update DesignToolsPage: fix all generators with reliable endpoint, add delete for generations, add video generator stub, add style presets
+4. Update Admin Live Chat tab: better layout, larger scroll area, session previews
+5. Update Admin AI Assistant: inject full customer data context
+6. Add TRX AI Premium tab in admin (UI only, credits stored in localStorage)
+7. Add PWA service worker notification prompt
+8. Remove free shipping labels site-wide, add shipping cost info to ProductDetailPage

@@ -23,6 +23,7 @@ import {
   Sparkles,
   Upload,
   Wand2,
+  X,
 } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
@@ -68,7 +69,7 @@ function LogoGenerator() {
     setGeneratedUrl("");
     try {
       const prompt = `professional logo design for brand "${brandName}", ${style} style, ${colors || "bold versatile"} color scheme, clean vector design, white background, high quality, sharp edges, graphic design`;
-      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&seed=${Date.now()}&enhance=true`;
+      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&safe=false&seed=${Date.now()}&enhance=true`;
       // Pre-load image with generous timeout
       await new Promise<void>((resolve, reject) => {
         const img = new window.Image();
@@ -89,7 +90,7 @@ function LogoGenerator() {
     } catch {
       // Retry with simpler prompt
       try {
-        const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(`${brandName} logo, ${style}, white background`)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 999999)}`;
+        const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(`${brandName} logo, ${style}, white background`)}?width=1024&height=1024&nologo=true&safe=false&seed=${Math.floor(Math.random() * 999999)}`;
         await new Promise<void>((resolve, reject) => {
           const img = new window.Image();
           const timeout = setTimeout(() => reject(new Error("Timeout")), 25000);
@@ -255,7 +256,7 @@ function SocialPostGenerator() {
       const size = PLATFORM_SIZES[platform] ?? { w: 1024, h: 1024 };
       const prompt = `${platform} social media post for brand "${brandName}", ${postStyle} aesthetic, text overlay: "${message || "Check us out!"}", modern graphic design, ${platform} optimized layout, professional marketing material, bold typography, eye-catching`;
       const seed = Date.now();
-      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${size.w}&height=${size.h}&nologo=true&seed=${seed}&enhance=true`;
+      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${size.w}&height=${size.h}&nologo=true&safe=false&seed=${seed}&enhance=true`;
 
       // Try with a generous timeout (Pollinations can be slow)
       await new Promise<void>((resolve, reject) => {
@@ -279,7 +280,7 @@ function SocialPostGenerator() {
       try {
         const size = PLATFORM_SIZES[platform] ?? { w: 1024, h: 1024 };
         const prompt = `branded ${platform} graphic for "${brandName}", ${postStyle} colors, marketing post`;
-        const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${size.w}&height=${size.h}&nologo=true&seed=${Math.floor(Math.random() * 999999)}`;
+        const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${size.w}&height=${size.h}&nologo=true&safe=false&seed=${Math.floor(Math.random() * 999999)}`;
         await new Promise<void>((resolve, reject) => {
           const img = new window.Image();
           const timeout = setTimeout(() => reject(new Error("Timeout")), 25000);
@@ -885,7 +886,7 @@ function MockupCreator() {
     try {
       const template = PRODUCT_TEMPLATES[productType];
       const prompt = `Professional product mockup: custom graphic design ${template.overlay}, high quality commercial photography, white/neutral studio background, sharp focus, product photography`;
-      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&seed=${Date.now()}`;
+      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&safe=false&seed=${Date.now()}`;
       await new Promise<void>((resolve, reject) => {
         const img = new window.Image();
         img.onload = () => resolve();
@@ -1043,10 +1044,34 @@ interface AIStudioGeneratedImage {
 
 export function AIStudioTab() {
   const [prompt, setPrompt] = useState("");
-  const [imageStyle, setImageStyle] = useState("Product");
+  const [imageStyle, setImageStyle] = useState("Photorealistic");
   const [generatedUrl, setGeneratedUrl] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [history, setHistory] = useState<AIStudioGeneratedImage[]>([]);
+
+  // Video generator state
+  const [videoPrompt, setVideoPrompt] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
+  const [isVideoLoading, setIsVideoLoading] = useState(false);
+
+  const AI_STYLES: Record<string, string> = {
+    Photorealistic:
+      "photorealistic, ultra detailed, 8k photography, sharp focus",
+    Cartoon: "cartoon style, vibrant colors, clean lines, animated look",
+    Watercolor: "watercolor painting, soft edges, artistic, painterly",
+    Minimalist: "minimalist design, clean white background, simple shapes",
+    Grunge: "grunge texture, distressed, raw aesthetic, edgy graphic design",
+    Neon: "neon lights, dark background, glowing colors, cyberpunk aesthetic",
+    Vintage: "vintage retro style, aged texture, nostalgic, old-school design",
+    Abstract: "abstract art, creative, dynamic composition, modern",
+    "3D Render":
+      "3d render, cinema 4d, blender, high quality 3d art, realistic materials",
+    Logo: "professional logo design, vector style, clean, white background",
+    Product:
+      "commercial product photography, studio lighting, white background",
+    "Social Media":
+      "social media graphic, bold typography, vibrant colors, eye-catching",
+  };
 
   async function handleGenerate() {
     if (!prompt.trim()) {
@@ -1055,36 +1080,76 @@ export function AIStudioTab() {
     }
     setIsLoading(true);
     try {
-      const styleHints: Record<string, string> = {
-        Photorealistic: "photorealistic, ultra detailed, 8k photography",
-        Illustration: "digital illustration, vector art, clean lines",
-        Abstract: "abstract art, creative, dynamic composition",
-        Logo: "professional logo design, vector style, clean, white background",
-        Product:
-          "commercial product photography, studio lighting, white background",
-        "Social Media": "social media graphic, bold typography, vibrant colors",
-      };
-      const fullPrompt = `${prompt}, ${styleHints[imageStyle] ?? ""}`;
-      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1024&height=1024&nologo=true&seed=${Date.now()}`;
-      await new Promise<void>((resolve, reject) => {
-        const img = new window.Image();
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error("Failed"));
-        img.src = url;
-      });
-      setGeneratedUrl(url);
+      const styleHint = AI_STYLES[imageStyle] ?? "";
+      const fullPrompt = `${prompt}, ${styleHint}`;
+      const seed = Date.now();
+      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1024&height=1024&nologo=true&safe=false&enhance=true&seed=${seed}`;
+
+      // Try up to 3 times
+      let loaded = false;
+      for (let attempt = 0; attempt < 3 && !loaded; attempt++) {
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const img = new window.Image();
+            img.crossOrigin = "anonymous";
+            const timeout = setTimeout(
+              () => reject(new Error("Timeout")),
+              30000,
+            );
+            img.onload = () => {
+              clearTimeout(timeout);
+              resolve();
+            };
+            img.onerror = () => {
+              clearTimeout(timeout);
+              reject(new Error("Failed"));
+            };
+            img.src =
+              attempt === 0 ? url : `${url}&seed=${seed + attempt * 1000}`;
+          });
+          loaded = true;
+          setGeneratedUrl(
+            attempt === 0 ? url : `${url}&seed=${seed + attempt * 1000}`,
+          );
+        } catch {
+          if (attempt === 2) throw new Error("All attempts failed");
+        }
+      }
       const newItem: AIStudioGeneratedImage = {
-        url,
+        url: generatedUrl || url,
         prompt: prompt.trim(),
         timestamp: new Date().toLocaleTimeString(),
       };
-      setHistory((prev) => [newItem, ...prev].slice(0, 5));
+      setHistory((prev) => [newItem, ...prev].slice(0, 12));
       toast.success("Image generated!");
     } catch {
-      toast.error("Generation failed. Please try again.");
+      toast.error("Generation failed after 3 attempts. Please try again.");
     } finally {
       setIsLoading(false);
     }
+  }
+
+  async function handleGenerateVideo() {
+    if (!videoPrompt.trim()) {
+      toast.error("Please enter a video prompt");
+      return;
+    }
+    setIsVideoLoading(true);
+    setVideoUrl("");
+    try {
+      const encodedPrompt = encodeURIComponent(videoPrompt);
+      const url = `https://video.pollinations.ai/prompt/${encodedPrompt}`;
+      setVideoUrl(url);
+      toast.success("Video URL ready — click play below!");
+    } catch {
+      toast.error("Video generation failed. Please try again.");
+    } finally {
+      setIsVideoLoading(false);
+    }
+  }
+
+  function deleteHistoryItem(index: number) {
+    setHistory((prev) => prev.filter((_, i) => i !== index));
   }
 
   return (
@@ -1105,7 +1170,7 @@ export function AIStudioTab() {
               <Textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Describe the image you want to generate..."
+                placeholder="e.g. MEGATRX brand logo with lightning bolt, bold typography, red and black..."
                 className="bg-background/50 min-h-[80px] resize-none"
                 data-ocid="aistudio.textarea"
               />
@@ -1122,14 +1187,7 @@ export function AIStudioTab() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {[
-                    "Photorealistic",
-                    "Illustration",
-                    "Abstract",
-                    "Logo",
-                    "Product",
-                    "Social Media",
-                  ].map((s) => (
+                  {Object.keys(AI_STYLES).map((s) => (
                     <SelectItem key={s} value={s}>
                       {s}
                     </SelectItem>
@@ -1159,7 +1217,9 @@ export function AIStudioTab() {
               data-ocid="aistudio.loading_state"
             >
               <Loader2 className="w-5 h-5 animate-spin text-primary" />
-              <span className="text-sm font-mono">Creating your image...</span>
+              <span className="text-sm font-mono">
+                Creating your image... (may take 15-30s)
+              </span>
             </div>
           )}
 
@@ -1189,36 +1249,116 @@ export function AIStudioTab() {
         </CardContent>
       </Card>
 
+      {/* Video Generator */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-mono uppercase tracking-wider flex items-center gap-2">
+            <Wand2 className="w-4 h-4 text-primary" />
+            AI Video Generator
+            <span className="text-[10px] font-mono bg-primary/20 text-primary px-1.5 py-0.5 rounded border border-primary/30 ml-1">
+              BETA
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-1.5">
+            <Label className="font-mono text-xs uppercase text-muted-foreground">
+              Video Prompt *
+            </Label>
+            <Textarea
+              value={videoPrompt}
+              onChange={(e) => setVideoPrompt(e.target.value)}
+              placeholder="e.g. MEGATRX logo animation with fire effects, cinematic, dark background..."
+              className="bg-background/50 min-h-[70px] resize-none"
+              data-ocid="video.textarea"
+            />
+          </div>
+          <Button
+            onClick={handleGenerateVideo}
+            disabled={isVideoLoading || !videoPrompt.trim()}
+            className="gap-2 font-mono"
+            data-ocid="video.primary_button"
+          >
+            {isVideoLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Wand2 className="w-4 h-4" />
+            )}
+            {isVideoLoading ? "Preparing..." : "Generate Video"}
+          </Button>
+          {videoUrl && !isVideoLoading && (
+            <div className="space-y-3" data-ocid="video.success_state">
+              <p className="text-xs text-muted-foreground font-mono">
+                Your video is ready — click play (may take a moment to buffer):
+              </p>
+              <video
+                src={videoUrl}
+                controls
+                className="w-full rounded-lg border border-border max-h-64"
+                onError={() => {
+                  window.open(videoUrl, "_blank");
+                }}
+              >
+                <track kind="captions" src="" label="No captions available" />
+              </video>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {history.length > 0 && (
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base font-mono uppercase tracking-wider">
-              Recent Generations
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base font-mono uppercase tracking-wider">
+                Recent Generations
+              </CardTitle>
+              <button
+                type="button"
+                onClick={() => setHistory([])}
+                className="text-xs text-muted-foreground hover:text-destructive font-mono transition-colors"
+              >
+                Clear all
+              </button>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-3">
               {history.map((item, i) => (
-                <button
-                  type="button"
+                <div
                   key={`${item.timestamp}-${i}`}
                   className="relative group cursor-pointer"
                   data-ocid={`aistudio.item.${i + 1}`}
-                  onClick={() => setGeneratedUrl(item.url)}
                 >
-                  <div className="w-20 h-20 rounded-md overflow-hidden border border-border">
+                  <button
+                    type="button"
+                    className="block w-20 h-20 rounded-md overflow-hidden border border-border"
+                    onClick={() => setGeneratedUrl(item.url)}
+                  >
                     <img
                       src={item.url}
                       alt={item.prompt}
                       className="w-full h-full object-cover"
                     />
-                  </div>
-                  <div className="absolute inset-0 bg-black/60 rounded-md opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <p className="text-[8px] font-mono text-white text-center px-1 line-clamp-3">
+                  </button>
+                  <div className="absolute inset-0 bg-black/60 rounded-md opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1">
+                    <p className="text-[8px] font-mono text-white text-center px-1 line-clamp-2">
                       {item.prompt}
                     </p>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteHistoryItem(i);
+                      }}
+                      className="bg-red-500/80 rounded-full p-0.5 hover:bg-red-500 transition-colors"
+                      aria-label="Delete"
+                      data-ocid={`aistudio.delete_button.${i + 1}`}
+                    >
+                      <X className="w-3 h-3 text-white" />
+                    </button>
                   </div>
-                </button>
+                </div>
               ))}
             </div>
           </CardContent>

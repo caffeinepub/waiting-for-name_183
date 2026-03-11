@@ -187,10 +187,43 @@ export default function ProductDetailPage() {
               </Card>
 
               {/* Customization note */}
-              <p className="text-sm text-muted-foreground font-mono mb-6 p-3 rounded-md bg-primary/10 border border-primary/20">
+              <p className="text-sm text-muted-foreground font-mono mb-4 p-3 rounded-md bg-primary/10 border border-primary/20">
                 ✏️ You'll choose quantity, colors, size, and design details on
                 the next step.
               </p>
+
+              {/* Shipping info */}
+              <Card className="border border-border mb-6">
+                <CardContent className="p-4">
+                  <h3 className="text-sm font-semibold uppercase tracking-wider mb-3 font-mono flex items-center gap-2">
+                    📦 Shipping Information
+                  </h3>
+                  <ul className="space-y-2 text-sm text-muted-foreground">
+                    <li className="flex justify-between">
+                      <span>Standard Shipping</span>
+                      <span className="font-mono font-medium text-foreground">
+                        $5.99 · 5–10 business days
+                      </span>
+                    </li>
+                    <li className="flex justify-between">
+                      <span>Express Shipping</span>
+                      <span className="font-mono font-medium text-foreground">
+                        $14.99 · 2–3 business days
+                      </span>
+                    </li>
+                    <li className="flex justify-between">
+                      <span>Custom design production</span>
+                      <span className="font-mono font-medium text-foreground">
+                        +7–14 business days
+                      </span>
+                    </li>
+                    <li className="pt-2 border-t border-border text-xs text-muted-foreground/70">
+                      📍 Ships from our studio · UPS &amp; USPS · Tracking
+                      included
+                    </li>
+                  </ul>
+                </CardContent>
+              </Card>
 
               <div className="flex flex-col sm:flex-row gap-3 mt-auto">
                 <Button
