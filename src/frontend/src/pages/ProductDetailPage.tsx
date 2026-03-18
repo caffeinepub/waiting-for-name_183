@@ -9,12 +9,67 @@ import { ArrowLeft, ShoppingCart } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+interface LocalProduct {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  category: string;
+  imageUrl: string;
+  imageUrls?: string[];
+  stock: number;
+  sizes?: string[];
+}
+
+function getLocalProduct(id: string): LocalProduct | null {
+  try {
+    const raw = localStorage.getItem("megatrx_products");
+    if (!raw) return null;
+    const products = JSON.parse(raw) as LocalProduct[];
+    return products.find((p) => p.id === id) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export default function ProductDetailPage() {
   const { id } = useParams({ strict: false });
   const navigate = useNavigate();
 
-  const productId = id ? BigInt(id) : null;
-  const { data: product, isLoading } = useGetProduct(productId);
+  // Always check localStorage first — product IDs are timestamps (numeric strings)
+  // so we can't rely on BigInt parsing to determine if it's local or backend.
+  const localProduct = id ? getLocalProduct(id) : null;
+  const isLocal = localProduct !== null;
+
+  // Only query backend if not found locally
+  const productId =
+    !isLocal && id
+      ? (() => {
+          try {
+            return BigInt(id);
+          } catch {
+            return null;
+          }
+        })()
+      : null;
+  const { data: backendProduct, isLoading } = useGetProduct(productId);
+
+  // Normalize both to a common shape
+  const product =
+    (localProduct
+      ? {
+          id: { toString: () => localProduct.id },
+          name: localProduct.name,
+          description: localProduct.description,
+          price: localProduct.price,
+          category: localProduct.category,
+          imageUrl: localProduct.imageUrl,
+          imageUrls: localProduct.imageUrls ?? [],
+          stock: localProduct.stock,
+          sizes: localProduct.sizes ?? [],
+        }
+      : backendProduct) ?? null;
+
   const { addToCart } = useCart();
   const { openCustomizationModal } = useCustomizationModal();
   const [activeImageIndex, setActiveImageIndex] = useState(0);
@@ -29,8 +84,9 @@ export default function ProductDetailPage() {
 
   const handleAddToCart = () => {
     if (!product) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     openCustomizationModal(
-      product,
+      product as any,
       (qty, customization) => {
         addToCart(product.id.toString(), qty, customization);
         toast.success(`Added ${qty} × ${product.name} to cart!`);
@@ -41,8 +97,9 @@ export default function ProductDetailPage() {
 
   const handleBuyNow = () => {
     if (!product) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     openCustomizationModal(
-      product,
+      product as any,
       (qty, customization) => {
         addToCart(product.id.toString(), qty, customization);
         navigate({ to: "/cart" });
@@ -51,7 +108,9 @@ export default function ProductDetailPage() {
     );
   };
 
-  if (isLoading) {
+  const loading = isLoading && !isLocal;
+
+  if (loading) {
     return (
       <div className="w-full py-16">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
@@ -73,6 +132,9 @@ export default function ProductDetailPage() {
       <div className="w-full py-16">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h1 className="text-3xl font-bold mb-4">Product Not Found</h1>
+          <p className="text-muted-foreground mb-6">
+            This product may have been removed or the link is incorrect.
+          </p>
           <Button asChild>
             <Link to="/shop">Return to Shop</Link>
           </Button>

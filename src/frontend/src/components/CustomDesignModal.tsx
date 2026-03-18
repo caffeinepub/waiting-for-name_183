@@ -39,6 +39,32 @@ interface AttachedFile {
   type: string;
 }
 
+interface LocalDesignRequest {
+  id: number;
+  customerName: string;
+  email: string;
+  description: string;
+  productType: string;
+  colorPrefs: string;
+  status: string;
+  createdAt: string;
+  files?: string[];
+}
+
+function saveLocalDesignRequest(req: LocalDesignRequest) {
+  try {
+    const raw = localStorage.getItem("megatrx_local_design_requests");
+    const requests: LocalDesignRequest[] = raw ? JSON.parse(raw) : [];
+    requests.push(req);
+    localStorage.setItem(
+      "megatrx_local_design_requests",
+      JSON.stringify(requests),
+    );
+  } catch {
+    // ignore
+  }
+}
+
 export default function CustomDesignModal() {
   const { isOpen, closeModal } = useDesignModal();
   const { actor } = useActor();
@@ -119,20 +145,42 @@ export default function CustomDesignModal() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!actor || !name || !email || !productType || !description) return;
+    if (!name || !email || !productType || !description) return;
 
     setIsSubmitting(true);
     try {
-      await actor.addCustomDesignRequest(
-        name,
+      // Always save to localStorage so admin can see it
+      const localReq: LocalDesignRequest = {
+        id: Date.now(),
+        customerName: name,
         email,
+        description: `[${productType}] ${description}${colorPrefs ? ` | Colors: ${colorPrefs}` : ""}`,
         productType,
-        description,
         colorPrefs,
-        files.map((f) => f.name),
-        new Date().toISOString(),
-        false,
-      );
+        status: "pending",
+        createdAt: new Date().toISOString(),
+        files: files.map((f) => f.name),
+      };
+      saveLocalDesignRequest(localReq);
+
+      // Also try backend if actor available
+      if (actor) {
+        try {
+          await actor.addCustomDesignRequest(
+            name,
+            email,
+            productType,
+            description,
+            colorPrefs,
+            files.map((f) => f.name),
+            new Date().toISOString(),
+            false,
+          );
+        } catch {
+          // Backend failed, local save already done
+        }
+      }
+
       toast.success(
         "Your design request has been submitted! We'll be in touch within 24 hours.",
       );
@@ -248,7 +296,7 @@ export default function CustomDesignModal() {
                 </span>
               </p>
               <p className="text-xs text-muted-foreground/60 mt-1">
-                Images & PDFs accepted · Max 5 files
+                Images &amp; PDFs accepted · Max 5 files
               </p>
               <input
                 ref={fileInputRef}

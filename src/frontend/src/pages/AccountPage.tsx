@@ -12,21 +12,45 @@ import {
 } from "@/components/ui/table";
 import { useAuth } from "@/context/AuthContext";
 import { useAuthModal } from "@/context/AuthModalContext";
+import { usePremiumCredits } from "@/hooks/usePremiumCredits";
 import { useGetAllOrders, useGetAllProducts } from "@/hooks/useQueries";
 import { Link } from "@tanstack/react-router";
 import {
   CheckCircle2,
+  Crown,
   Loader2,
   LogOut,
   Package,
+  Paintbrush,
   Save,
   ShoppingBag,
+  Sparkles,
   Truck,
   User,
   XCircle,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+
+interface DesignRequest {
+  id: string;
+  name: string;
+  email: string;
+  description: string;
+  status: string;
+  createdAt: string;
+}
+
+function getMyDesignRequests(email: string): DesignRequest[] {
+  try {
+    const raw = localStorage.getItem("megatrx_local_design_requests");
+    if (!raw) return [];
+    const all = JSON.parse(raw) as DesignRequest[];
+    return all.filter((r) => r.email?.toLowerCase() === email.toLowerCase());
+  } catch {
+    return [];
+  }
+}
 
 function getStatusIcon(status: string) {
   switch (status.toLowerCase()) {
@@ -58,6 +82,22 @@ function getStatusClass(status: string) {
   }
 }
 
+function getRequestStatusClass(status: string) {
+  switch (status.toLowerCase()) {
+    case "pending":
+      return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
+    case "in progress":
+    case "inprogress":
+      return "bg-blue-500/20 text-blue-400 border-blue-500/30";
+    case "completed":
+      return "bg-green-500/20 text-green-400 border-green-500/30";
+    case "rejected":
+      return "bg-red-500/20 text-red-400 border-red-500/30";
+    default:
+      return "bg-muted text-muted-foreground border-border";
+  }
+}
+
 export default function AccountPage() {
   const { currentUser, isLoggedIn, logout, updateProfile } = useAuth();
   const { openModal } = useAuthModal();
@@ -68,11 +108,17 @@ export default function AccountPage() {
   const [phone, setPhone] = useState(currentUser?.phone ?? "");
   const [address, setAddress] = useState(currentUser?.address ?? "");
   const [saving, setSaving] = useState(false);
+  const { isAdmin, balance, tier } = usePremiumCredits();
 
   // Filter orders by current user email
   const myOrders = allOrders.filter(
     (o) => o.email.toLowerCase() === currentUser?.email?.toLowerCase(),
   );
+
+  // Design requests from localStorage
+  const myDesignRequests = currentUser?.email
+    ? getMyDesignRequests(currentUser.email)
+    : [];
 
   function getOrderTotal(order: {
     items: Array<{ productId: bigint; quantity: bigint }>;
@@ -207,10 +253,57 @@ export default function AccountPage() {
                   </form>
                 </CardContent>
               </Card>
+
+              {/* Premium */}
+              <Card className="border-2 border-amber-400/30 bg-amber-400/5 mt-6">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base font-mono uppercase tracking-wider flex items-center gap-2">
+                    <Crown className="w-4 h-4 text-amber-400" />
+                    TRX AI Premium
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {isAdmin ? (
+                    <div className="inline-flex items-center gap-2 bg-amber-400/20 border border-amber-400/40 rounded-lg px-3 py-2 w-full">
+                      <Crown className="w-4 h-4 text-amber-400 shrink-0" />
+                      <div>
+                        <p className="text-xs font-bold text-amber-400 font-mono uppercase">
+                          Admin — Free
+                        </p>
+                        <p className="text-xs text-amber-400/70">
+                          Unlimited credits
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-mono text-muted-foreground uppercase">
+                          Balance
+                        </span>
+                        <span className="font-bold flex items-center gap-1">
+                          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                          {balance === Number.POSITIVE_INFINITY ? "∞" : balance}{" "}
+                          credits
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-mono text-muted-foreground uppercase">
+                          Tier
+                        </span>
+                        <span className="capitalize text-sm font-mono text-primary">
+                          {tier}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </div>
 
-            {/* Order History */}
-            <div className="lg:col-span-2">
+            {/* Right column: Orders + Design Requests */}
+            <div className="lg:col-span-2 space-y-8">
+              {/* Order History */}
               <Card className="border-2 border-border">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base font-mono uppercase tracking-wider flex items-center gap-2">
@@ -283,6 +376,77 @@ export default function AccountPage() {
                             </TableCell>
                             <TableCell className="text-right font-bold">
                               ${(getOrderTotal(order) / 100).toFixed(2)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Design Requests */}
+              <Card className="border-2 border-border">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base font-mono uppercase tracking-wider flex items-center gap-2">
+                    <Paintbrush className="w-4 h-4 text-primary" />
+                    Design Requests
+                    {myDesignRequests.length > 0 && (
+                      <span className="text-xs font-normal text-muted-foreground">
+                        ({myDesignRequests.length} request
+                        {myDesignRequests.length !== 1 ? "s" : ""})
+                      </span>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {myDesignRequests.length === 0 ? (
+                    <div className="text-center py-12 text-muted-foreground">
+                      <Paintbrush className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                      <p className="font-mono text-sm mb-4">
+                        No design requests yet
+                      </p>
+                      <Button asChild size="sm" variant="outline">
+                        <Link to="/">Request a Custom Design</Link>
+                      </Button>
+                    </div>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="font-mono text-xs uppercase">
+                            Request
+                          </TableHead>
+                          <TableHead className="font-mono text-xs uppercase">
+                            Date
+                          </TableHead>
+                          <TableHead className="font-mono text-xs uppercase">
+                            Status
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {myDesignRequests.map((req) => (
+                          <TableRow key={req.id}>
+                            <TableCell>
+                              <p className="text-sm font-medium truncate max-w-[200px]">
+                                {req.description || "Custom Design Request"}
+                              </p>
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {req.createdAt
+                                ? new Date(req.createdAt).toLocaleDateString()
+                                : "—"}
+                            </TableCell>
+                            <TableCell>
+                              <span
+                                className={`inline-flex items-center gap-1 text-xs font-mono border px-2 py-0.5 rounded-full ${getRequestStatusClass(req.status || "pending")}`}
+                              >
+                                {(req.status || "Pending")
+                                  .charAt(0)
+                                  .toUpperCase() +
+                                  (req.status || "pending").slice(1)}
+                              </span>
                             </TableCell>
                           </TableRow>
                         ))}

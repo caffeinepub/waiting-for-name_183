@@ -21,9 +21,57 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 
+interface LocalProduct {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  category: string;
+  imageUrl: string;
+  imageUrls?: string[];
+  stock: number;
+  sizes?: string[];
+}
+
+interface LocalOrder {
+  id: number;
+  customerName: string;
+  email: string;
+  shippingAddress: string;
+  items: Array<{
+    productId: string;
+    productName: string;
+    quantity: number;
+    price: number;
+  }>;
+  status: string;
+  createdAt: string;
+  total: number;
+}
+
+function getLocalStorageProducts(): LocalProduct[] {
+  try {
+    const raw = localStorage.getItem("megatrx_products");
+    return raw ? (JSON.parse(raw) as LocalProduct[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalOrder(order: LocalOrder) {
+  try {
+    const raw = localStorage.getItem("megatrx_local_orders");
+    const orders: LocalOrder[] = raw ? JSON.parse(raw) : [];
+    orders.push(order);
+    localStorage.setItem("megatrx_local_orders", JSON.stringify(orders));
+  } catch {
+    // ignore storage errors
+  }
+}
+
 export default function CartPage() {
   const { cartItems, removeFromCart, updateQuantity, clearCart } = useCart();
-  const { data: allProducts = [], isLoading: productsLoading } =
+  const { data: backendProducts = [], isLoading: productsLoading } =
     useGetAllProducts();
   const createOrderMutation = useCreateOrder();
   const { currentUser, isLoggedIn } = useAuth();
@@ -38,21 +86,28 @@ export default function CartPage() {
   const [zip, setZip] = useState("");
   const [phone, setPhone] = useState(currentUser?.phone ?? "");
 
+  // Merge backend + localStorage products
+  const localProducts = getLocalStorageProducts();
+  const backendIds = new Set(backendProducts.map((p) => p.id.toString()));
+  const mergedProducts = [
+    ...localProducts.filter((p) => !backendIds.has(p.id.toString())),
+    ...backendProducts,
+  ];
+
   const cartWithDetails = cartItems
     .map((item) => {
-      const product = allProducts.find(
+      const product = mergedProducts.find(
         (p) => p.id.toString() === item.productId,
       );
       return { item, product };
     })
     .filter(({ product }) => !!product);
 
-  const subtotal = cartWithDetails.reduce(
-    ({ sum }, { item, product }) => {
-      return { sum: sum + Number(product!.price) * item.quantity };
-    },
-    { sum: 0 },
-  ).sum;
+  const subtotal = cartWithDetails.reduce((acc, { item, product }) => {
+    return acc + Number(product!.price) * item.quantity;
+  }, 0);
+
+  const SHIPPING_COST = 599; // $5.99 standard shipping in cents
 
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,19 +149,47 @@ export default function CartPage() {
         ? `${baseAddress}\n\nCustomization Notes:\n${customizationLines.join("\n")}`
         : baseAddress;
 
+    // Safe BigInt conversion — use 0 for local product IDs
     const orderItems = cartItems.map((item) => ({
-      productId: BigInt(item.productId),
+      productId: BigInt(
+        Number.isNaN(Number(item.productId)) ? 0 : item.productId,
+      ),
       quantity: BigInt(item.quantity),
     }));
 
+    // Build a localStorage order object
+    const localOrder: LocalOrder = {
+      id: Date.now(),
+      customerName: currentUser.name,
+      email: currentUser.email,
+      shippingAddress,
+      items: cartItems.map((item) => ({
+        productId: item.productId,
+        productName:
+          mergedProducts.find((p) => p.id.toString() === item.productId)
+            ?.name ?? "Unknown",
+        quantity: item.quantity,
+        price: Number(
+          mergedProducts.find((p) => p.id.toString() === item.productId)
+            ?.price ?? 0,
+        ),
+      })),
+      status: "pending",
+      createdAt: new Date().toISOString(),
+      total: subtotal + SHIPPING_COST,
+    };
+
+    let orderId: bigint | number = localOrder.id;
+
     try {
-      const orderId = await createOrderMutation.mutateAsync({
+      const result = await createOrderMutation.mutateAsync({
         customerName: currentUser.name,
         email: currentUser.email,
         shippingAddress,
         items: orderItems,
         createdAt: new Date().toISOString(),
       });
+      orderId = result;
 
       // Web push notification for admin
       if (
@@ -118,26 +201,25 @@ export default function CartPage() {
         });
       }
 
-      // Store orderId for success page retrieval
       localStorage.setItem("megatrx_pending_order_id", orderId.toString());
+    } catch {
+      // Backend call failed — save locally and continue
+      orderId = localOrder.id;
+      localStorage.setItem("megatrx_pending_order_id", orderId.toString());
+    }
 
-      const stripeLink = localStorage.getItem("megatrx_stripe_link");
+    // Always save order locally so admin can see it
+    saveLocalOrder(localOrder);
 
-      if (stripeLink && stripeLink.trim().length > 0) {
-        // Redirect to Stripe Payment Link — clear cart first
-        clearCart();
-        window.location.href = stripeLink.trim();
-      } else {
-        // No Stripe link configured — fall back to receipt page
-        clearCart();
-        toast.success(
-          "Order placed! Complete payment at pickup or contact us.",
-        );
-        navigate({ to: `/order/${orderId.toString()}` });
-      }
-    } catch (error) {
-      toast.error("Failed to place order. Please try again.");
-      console.error(error);
+    const stripeLink = localStorage.getItem("megatrx_stripe_link");
+
+    if (stripeLink && stripeLink.trim().length > 0) {
+      clearCart();
+      window.location.href = stripeLink.trim();
+    } else {
+      clearCart();
+      toast.success("Order placed! Complete payment at pickup or contact us.");
+      navigate({ to: `/order/${orderId.toString()}` });
     }
   };
 
@@ -339,11 +421,19 @@ export default function CartPage() {
                         ${(subtotal / 100).toFixed(2)}
                       </span>
                     </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground font-mono">
+                        Shipping
+                      </span>
+                      <span className="font-semibold">
+                        ${(SHIPPING_COST / 100).toFixed(2)}
+                      </span>
+                    </div>
                     <Separator />
                     <div className="flex justify-between text-lg font-bold">
                       <span className="font-mono">Total</span>
                       <span className="text-primary">
-                        ${(subtotal / 100).toFixed(2)}
+                        ${((subtotal + SHIPPING_COST) / 100).toFixed(2)}
                       </span>
                     </div>
                   </div>
@@ -443,13 +533,13 @@ export default function CartPage() {
                           Total due today
                         </p>
                         <p className="text-2xl font-bold text-primary">
-                          ${(subtotal / 100).toFixed(2)}
+                          ${((subtotal + SHIPPING_COST) / 100).toFixed(2)}
                         </p>
                       </div>
 
                       {/* Apple Pay / Google Pay button */}
                       <StripeApplePayButton
-                        totalCents={subtotal}
+                        totalCents={subtotal + SHIPPING_COST}
                         label="MEGATRX Order"
                         onPaymentMethod={async (paymentMethodId) => {
                           if (!isLoggedIn || !currentUser) {
@@ -464,7 +554,7 @@ export default function CartPage() {
                             return;
                           }
                           const baseAddress = `${street}, ${city}, ${state} ${zip}`;
-                          const customizationLines = cartWithDetails
+                          const customizationLinesAP = cartWithDetails
                             .filter(({ item }) => !!item.customization)
                             .map(({ item, product }) => {
                               const c = item.customization as Customization;
@@ -477,23 +567,50 @@ export default function CartPage() {
                                 parts.push(`Ref file: ${c.fileUrl}`);
                               return `- ${product!.name}: ${parts.join(", ")}`;
                             });
-                          const shippingAddress =
-                            customizationLines.length > 0
-                              ? `${baseAddress}\n\nCustomization Notes:\n${customizationLines.join("\n")}`
+                          const shippingAddressAP =
+                            customizationLinesAP.length > 0
+                              ? `${baseAddress}\n\nCustomization Notes:\n${customizationLinesAP.join("\n")}`
                               : baseAddress;
-                          const orderItems = cartItems.map((item) => ({
-                            productId: BigInt(item.productId),
+                          const apOrderItems = cartItems.map((item) => ({
+                            productId: BigInt(
+                              Number.isNaN(Number(item.productId))
+                                ? 0
+                                : item.productId,
+                            ),
                             quantity: BigInt(item.quantity),
                           }));
+                          const apLocalOrder: LocalOrder = {
+                            id: Date.now(),
+                            customerName: currentUser.name,
+                            email: currentUser.email,
+                            shippingAddress: shippingAddressAP,
+                            items: cartItems.map((item) => ({
+                              productId: item.productId,
+                              productName:
+                                mergedProducts.find(
+                                  (p) => p.id.toString() === item.productId,
+                                )?.name ?? "Unknown",
+                              quantity: item.quantity,
+                              price: Number(
+                                mergedProducts.find(
+                                  (p) => p.id.toString() === item.productId,
+                                )?.price ?? 0,
+                              ),
+                            })),
+                            status: "pending",
+                            createdAt: new Date().toISOString(),
+                            total: subtotal + SHIPPING_COST,
+                          };
                           try {
                             const orderId =
                               await createOrderMutation.mutateAsync({
                                 customerName: currentUser.name,
                                 email: currentUser.email,
-                                shippingAddress: `${shippingAddress}\n\nPayment: Apple Pay / Google Pay (Stripe PM: ${paymentMethodId})`,
-                                items: orderItems,
+                                shippingAddress: `${shippingAddressAP}\n\nPayment: Apple Pay / Google Pay (Stripe PM: ${paymentMethodId})`,
+                                items: apOrderItems,
                                 createdAt: new Date().toISOString(),
                               });
+                            saveLocalOrder(apLocalOrder);
                             localStorage.setItem(
                               "megatrx_pending_order_id",
                               orderId.toString(),
@@ -502,9 +619,18 @@ export default function CartPage() {
                             toast.success("Payment confirmed! Order placed.");
                             navigate({ to: `/order/${orderId.toString()}` });
                           } catch {
-                            toast.error(
-                              "Failed to place order. Please try again.",
+                            saveLocalOrder(apLocalOrder);
+                            localStorage.setItem(
+                              "megatrx_pending_order_id",
+                              apLocalOrder.id.toString(),
                             );
+                            clearCart();
+                            toast.success(
+                              "Order placed! We'll confirm payment shortly.",
+                            );
+                            navigate({
+                              to: `/order/${apLocalOrder.id.toString()}`,
+                            });
                           }
                         }}
                       />

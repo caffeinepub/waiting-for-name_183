@@ -73,7 +73,6 @@ function LogoGenerator() {
       // Pre-load image with generous timeout
       await new Promise<void>((resolve, reject) => {
         const img = new window.Image();
-        img.crossOrigin = "anonymous";
         const timeout = setTimeout(() => reject(new Error("Timeout")), 30000);
         img.onload = () => {
           clearTimeout(timeout);
@@ -261,7 +260,6 @@ function SocialPostGenerator() {
       // Try with a generous timeout (Pollinations can be slow)
       await new Promise<void>((resolve, reject) => {
         const img = new window.Image();
-        img.crossOrigin = "anonymous";
         const timeout = setTimeout(() => reject(new Error("Timeout")), 30000);
         img.onload = () => {
           clearTimeout(timeout);
@@ -1091,7 +1089,6 @@ export function AIStudioTab() {
         try {
           await new Promise<void>((resolve, reject) => {
             const img = new window.Image();
-            img.crossOrigin = "anonymous";
             const timeout = setTimeout(
               () => reject(new Error("Timeout")),
               30000,

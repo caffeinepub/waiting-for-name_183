@@ -11,9 +11,14 @@ import { CustomizationModalProvider } from "@/context/CustomizationModalContext"
 import { DesignModalProvider } from "@/context/DesignModalContext";
 import { useSeedData } from "@/hooks/useSeedData";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { HelpCircle, LogIn, ShoppingCart, User } from "lucide-react";
-
-// ── Inner layout that has access to auth/cart contexts ──────────────────────
+import {
+  Crown,
+  HelpCircle,
+  LogIn,
+  Music,
+  ShoppingCart,
+  User,
+} from "lucide-react";
 
 function LayoutInner() {
   const routerState = useRouterState();
@@ -30,9 +35,12 @@ function LayoutInner() {
     { to: "/portfolio", label: "Portfolio" },
     { to: "/shop", label: "Shop" },
     { to: "/design-tools", label: "AI Tools" },
+    { to: "/music", label: "Music", icon: "music" },
     { to: "/about", label: "About" },
     { to: "/shipping", label: "Shipping" },
     { to: "/help", label: "Help" },
+    { to: "/community", label: "Community" },
+    { to: "/premium", label: "Premium", icon: "crown" },
   ];
 
   const initials = currentUser?.name
@@ -84,20 +92,34 @@ function LayoutInner() {
                   <Link
                     key={link.to}
                     to={link.to}
-                    className={`px-3 lg:px-4 py-2 text-sm font-medium uppercase tracking-wide transition-colors ${
+                    className={`px-2 lg:px-3 py-2 text-sm font-medium uppercase tracking-wide transition-colors inline-flex items-center gap-1 ${
                       pathname === link.to
                         ? "text-primary"
                         : "text-muted-foreground hover:text-foreground"
+                    } ${
+                      "icon" in link && link.icon === "crown"
+                        ? "hover:text-amber-400"
+                        : ""
+                    } ${
+                      "icon" in link && link.icon === "music"
+                        ? "hover:text-primary"
+                        : ""
                     }`}
+                    data-ocid={`nav.${link.label.toLowerCase().replace(/ /g, "_")}.link`}
                   >
+                    {"icon" in link && link.icon === "crown" && (
+                      <Crown className="w-3 h-3 text-amber-400" />
+                    )}
+                    {"icon" in link && link.icon === "music" && (
+                      <Music className="w-3 h-3" />
+                    )}
                     {link.label}
                   </Link>
                 ))}
               </nav>
 
-              {/* Right side: Auth + Cart */}
+              {/* Right side */}
               <div className="flex items-center gap-2">
-                {/* Auth button */}
                 {isLoggedIn ? (
                   <div className="flex items-center gap-2">
                     <Link
@@ -130,10 +152,10 @@ function LayoutInner() {
                   </Button>
                 )}
 
-                {/* Cart */}
                 <Link
                   to="/cart"
                   className="relative flex items-center gap-2 px-3 py-2 text-sm font-medium transition-colors hover:text-primary"
+                  data-ocid="nav.cart.link"
                 >
                   <ShoppingCart className="w-5 h-5" />
                   {cartCount > 0 && (
@@ -186,16 +208,13 @@ function LayoutInner() {
           </div>
         </header>
 
-        {/* Main Content */}
         <main className="flex-1">
           <Outlet />
         </main>
 
-        {/* Footer */}
         <footer className="border-t border-border mt-16 sm:mt-24">
           <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              {/* Brand */}
               <div>
                 <h2 className="text-2xl font-bold tracking-tighter mb-2 font-sans">
                   MEGA<span className="text-primary">TRX</span>
@@ -204,8 +223,6 @@ function LayoutInner() {
                   Graphic design excellence meets modern ecommerce.
                 </p>
               </div>
-
-              {/* Quick Links */}
               <div>
                 <h3 className="text-sm font-semibold uppercase tracking-wider mb-4 font-mono">
                   Quick Links
@@ -226,8 +243,7 @@ function LayoutInner() {
                       to="/account"
                       className="text-sm text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
                     >
-                      <User className="w-3 h-3" />
-                      My Account
+                      <User className="w-3 h-3" /> My Account
                     </Link>
                   </li>
                   <li>
@@ -235,14 +251,11 @@ function LayoutInner() {
                       to="/help"
                       className="text-sm text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
                     >
-                      <HelpCircle className="w-3 h-3" />
-                      Help Center
+                      <HelpCircle className="w-3 h-3" /> Help Center
                     </Link>
                   </li>
                 </ul>
               </div>
-
-              {/* Info */}
               <div>
                 <h3 className="text-sm font-semibold uppercase tracking-wider mb-4 font-mono">
                   Connect
@@ -269,20 +282,13 @@ function LayoutInner() {
           </div>
         </footer>
 
-        {/* Chat widget — always visible on public pages */}
         <ChatWidget />
-
-        {/* Custom Design Modal — triggered by context */}
         <CustomDesignModal />
-
-        {/* Auth Modal */}
         <AuthModal />
       </div>
     </DesignModalProvider>
   );
 }
-
-// ── Exported Layout wraps with all required providers ────────────────────────
 
 export default function Layout() {
   return (

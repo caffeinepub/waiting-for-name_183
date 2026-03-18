@@ -61,6 +61,7 @@ import {
   LogOut,
   Mail,
   MessageSquare,
+  Music,
   Package,
   Palette,
   Paperclip,
@@ -76,6 +77,7 @@ import {
   Truck,
   User,
   UserCheck,
+  Users,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -900,10 +902,52 @@ function getOrderStatusClass(status: string) {
   }
 }
 
+interface LocalOrder {
+  id: number;
+  customerName: string;
+  email: string;
+  shippingAddress: string;
+  items: Array<{
+    productId: string;
+    productName: string;
+    quantity: number;
+    price: number;
+  }>;
+  status: string;
+  createdAt: string;
+  total: number;
+}
+
+function loadLocalOrders(): LocalOrder[] {
+  try {
+    const raw = localStorage.getItem("megatrx_local_orders");
+    return raw ? (JSON.parse(raw) as LocalOrder[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalOrderStatus(id: number, status: string) {
+  try {
+    const raw = localStorage.getItem("megatrx_local_orders");
+    const orders: LocalOrder[] = raw ? JSON.parse(raw) : [];
+    const idx = orders.findIndex((o) => o.id === id);
+    if (idx !== -1) {
+      orders[idx].status = status;
+      localStorage.setItem("megatrx_local_orders", JSON.stringify(orders));
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 function OrdersTab() {
   const { actor } = useActor();
   const queryClient = useQueryClient();
   const { data: orders = [], isLoading } = useGetAllOrders();
+  const [localOrders, setLocalOrders] = useState<LocalOrder[]>(() =>
+    loadLocalOrders(),
+  );
   const [trackingInputs, setTrackingInputs] = useState<Record<string, string>>(
     {},
   );
@@ -957,10 +1001,12 @@ function OrdersTab() {
     await handleUpdateStatus(order, "shipped", tracking.trim());
   }
 
+  const allOrdersCount = orders.length + localOrders.length;
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground font-mono">
-        {orders.length} order{orders.length !== 1 ? "s" : ""} total
+        {allOrdersCount} order{allOrdersCount !== 1 ? "s" : ""} total
       </p>
 
       {isLoading ? (
@@ -970,7 +1016,7 @@ function OrdersTab() {
         >
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
         </div>
-      ) : orders.length === 0 ? (
+      ) : allOrdersCount === 0 ? (
         <Card>
           <CardContent
             className="py-12 text-center text-muted-foreground"
@@ -982,6 +1028,81 @@ function OrdersTab() {
         </Card>
       ) : (
         <div className="space-y-3">
+          {/* Local (localStorage) orders */}
+          {localOrders.map((order, idx) => (
+            <Card
+              key={`local-${order.id}`}
+              className="border-border border-l-4 border-l-orange-500/70"
+              data-ocid={`orders.item.${idx + 1}`}
+            >
+              <CardContent className="p-4 sm:p-5">
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-mono bg-orange-500/20 text-orange-400 border border-orange-500/30 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                      LOCAL
+                    </span>
+                    <span className="font-mono text-xs text-muted-foreground">
+                      #{order.id}
+                    </span>
+                    <span className="font-bold text-sm">
+                      {order.customerName}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {order.email}
+                    </span>
+                    <span
+                      className={`text-[10px] font-mono border px-1.5 py-0.5 rounded uppercase tracking-wider ${getOrderStatusClass(order.status)}`}
+                    >
+                      {order.status || "pending"}
+                    </span>
+                    {order.createdAt && (
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(order.createdAt).toLocaleDateString()}
+                      </span>
+                    )}
+                    <Badge variant="outline" className="font-mono text-xs">
+                      {order.items.length} item
+                      {order.items.length !== 1 ? "s" : ""}
+                    </Badge>
+                    <Badge
+                      variant="outline"
+                      className="font-mono text-xs text-green-400"
+                    >
+                      Total: ${(order.total / 100).toFixed(2)}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    📍 {order.shippingAddress}
+                  </p>
+                  <div className="text-xs text-muted-foreground space-y-0.5">
+                    {order.items.map((item, i) => (
+                      <p key={`${item.productId}-${i}`}>
+                        {item.quantity}× {item.productName} — $
+                        {(item.price / 100).toFixed(2)} each
+                      </p>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={order.status}
+                      onChange={(e) => {
+                        saveLocalOrderStatus(order.id, e.target.value);
+                        setLocalOrders(loadLocalOrders());
+                      }}
+                      className="h-8 text-xs font-mono bg-background border border-border rounded px-2"
+                    >
+                      <option value="pending">Pending</option>
+                      <option value="processing">Processing</option>
+                      <option value="shipped">Shipped</option>
+                      <option value="delivered">Delivered</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+          {/* Backend orders */}
           {orders.map((order: Order, idx) => (
             <Card
               key={order.id.toString()}
@@ -2438,12 +2559,53 @@ function ContentTab() {
 
 // ─── Enhanced Design Requests Tab ────────────────────────────────────────────
 
+interface LocalDesignRequest {
+  id: number;
+  customerName: string;
+  email: string;
+  description: string;
+  productType?: string;
+  colorPrefs?: string;
+  status: string;
+  createdAt: string;
+  files?: string[];
+}
+
+function loadLocalDesignRequests(): LocalDesignRequest[] {
+  try {
+    const raw = localStorage.getItem("megatrx_local_design_requests");
+    return raw ? (JSON.parse(raw) as LocalDesignRequest[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalDesignRequestStatus(id: number, status: string) {
+  try {
+    const raw = localStorage.getItem("megatrx_local_design_requests");
+    const requests: LocalDesignRequest[] = raw ? JSON.parse(raw) : [];
+    const idx = requests.findIndex((r) => r.id === id);
+    if (idx !== -1) {
+      requests[idx].status = status;
+      localStorage.setItem(
+        "megatrx_local_design_requests",
+        JSON.stringify(requests),
+      );
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 function DesignRequestsTabEnhanced() {
   const { data: requests = [], isLoading } = useGetAllCustomDesignRequests();
   const { data: humanCount = BigInt(0) } = useGetHumanRequestCount();
   const updateStatus = useUpdateLocalDesignStatus();
   const deleteRequest = useDeleteCustomDesignRequest();
   const queryClient = useQueryClient();
+  const [localRequests, setLocalRequests] = useState<LocalDesignRequest[]>(() =>
+    loadLocalDesignRequests(),
+  );
 
   // Sort: chat escalations first
   const sorted = [...requests].sort((a, b) => {
@@ -2451,6 +2613,7 @@ function DesignRequestsTabEnhanced() {
     if (!a.chatEscalation && b.chatEscalation) return 1;
     return 0;
   });
+  const totalCount = Number(humanCount) + sorted.length + localRequests.length;
 
   function getStatusColor(status: string) {
     switch (status.toLowerCase()) {
@@ -2524,7 +2687,7 @@ function DesignRequestsTabEnhanced() {
         <div className="flex items-center justify-center py-16">
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
         </div>
-      ) : requests.length === 0 ? (
+      ) : totalCount === 0 ? (
         <Card data-ocid="designs.empty_state">
           <CardContent className="py-16 text-center text-muted-foreground">
             <PenTool className="w-10 h-10 mx-auto mb-3 opacity-30" />
@@ -2533,6 +2696,69 @@ function DesignRequestsTabEnhanced() {
         </Card>
       ) : (
         <div className="space-y-3">
+          {/* Local design requests from localStorage */}
+          {localRequests.map((req, idx) => (
+            <Card
+              key={`local-req-${req.id}`}
+              className="border-border border-l-4 border-l-blue-500/70"
+              data-ocid={`designs.item.${idx + 1}`}
+            >
+              <CardContent className="p-4 sm:p-5">
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-mono bg-blue-500/20 text-blue-400 border border-blue-500/30 px-1.5 py-0.5 rounded uppercase">
+                      LOCAL
+                    </span>
+                    <h4 className="font-bold text-sm">{req.customerName}</h4>
+                    <span className="text-xs text-muted-foreground font-mono">
+                      {req.email}
+                    </span>
+                    <span
+                      className={`text-[10px] font-mono border px-1.5 py-0.5 rounded uppercase tracking-wider ${req.status === "pending" ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/30" : req.status === "completed" ? "bg-green-500/20 text-green-400 border-green-500/30" : "bg-blue-500/20 text-blue-400 border-blue-500/30"}`}
+                    >
+                      {req.status}
+                    </span>
+                    {req.createdAt && (
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(req.createdAt).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                  {req.productType && (
+                    <p className="text-xs text-muted-foreground font-mono">
+                      Product: {req.productType}
+                    </p>
+                  )}
+                  <p className="text-sm text-foreground">{req.description}</p>
+                  {req.colorPrefs && (
+                    <p className="text-xs text-muted-foreground">
+                      Colors: {req.colorPrefs}
+                    </p>
+                  )}
+                  {req.files && req.files.length > 0 && (
+                    <p className="text-xs text-muted-foreground font-mono">
+                      📎 {req.files.join(", ")}
+                    </p>
+                  )}
+                  <div className="flex gap-2 mt-1">
+                    <select
+                      value={req.status}
+                      onChange={(e) => {
+                        saveLocalDesignRequestStatus(req.id, e.target.value);
+                        setLocalRequests(loadLocalDesignRequests());
+                      }}
+                      className="h-7 text-xs font-mono bg-background border border-border rounded px-2"
+                    >
+                      <option value="pending">Pending</option>
+                      <option value="in-progress">In Progress</option>
+                      <option value="completed">Completed</option>
+                    </select>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+          {/* Backend design requests */}
           {sorted.map((req, idx) => (
             <Card
               key={req.id.toString()}
@@ -2926,7 +3152,7 @@ function LiveChatTab() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[580px]">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[720px]">
           {/* Session list */}
           <Card className="overflow-hidden">
             <CardHeader className="py-3 px-4 border-b border-border">
@@ -3118,7 +3344,7 @@ function LiveChatTab() {
                               </span>
                             )}
                             <div
-                              className={`rounded-xl px-3 py-2 text-sm leading-relaxed ${
+                              className={`rounded-xl px-4 py-3 text-base leading-relaxed ${
                                 msg.role === "admin" && !isAiBot
                                   ? "bg-primary text-primary-foreground rounded-tr-sm"
                                   : msg.role === "admin" && isAiBot
@@ -3389,7 +3615,7 @@ function AIAssistantTab() {
         </CardHeader>
         <CardContent className="p-0">
           {/* Messages */}
-          <div className="h-[340px] overflow-y-auto p-4 space-y-3 border-b border-border">
+          <div className="h-[600px] overflow-y-auto p-4 space-y-3 border-b border-border">
             {messages.map((msg) => (
               <div
                 key={msg.id}
@@ -3789,6 +4015,8 @@ export default function AdminDashboardPage() {
                 { value: "aistudio", icon: Palette, label: "AI Studio" },
                 { value: "trxai", icon: Sparkles, label: "TRX AI" },
                 { value: "settings", icon: Settings, label: "Settings" },
+                { value: "community", icon: Users, label: "Community" },
+                { value: "music", icon: Music, label: "Music" },
               ].map(({ value, icon: Icon, label }) => (
                 <TabsTrigger
                   key={value}
@@ -3865,8 +4093,713 @@ export default function AdminDashboardPage() {
           <TabsContent value="settings">
             <SettingsTab />
           </TabsContent>
+          <TabsContent value="community">
+            <CommunityModerationTab />
+          </TabsContent>
+          <TabsContent value="music">
+            <AdminMusicTab />
+          </TabsContent>
         </Tabs>
       </main>
+    </div>
+  );
+}
+
+// ─── Community Moderation Tab ──────────────────────────────────────────────────
+
+interface CommunityReport {
+  id: string;
+  type: "post" | "comment";
+  targetId: string;
+  reportedBy: string;
+  reason: string;
+  createdAt: string;
+}
+
+function CommunityModerationTab() {
+  const [reports, setReports] = useState<CommunityReport[]>(() => {
+    try {
+      const v = localStorage.getItem("community_reports");
+      return v ? JSON.parse(v) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  function deleteContent(report: CommunityReport) {
+    if (report.type === "post") {
+      try {
+        const posts = JSON.parse(
+          localStorage.getItem("community_posts") || "[]",
+        );
+        localStorage.setItem(
+          "community_posts",
+          JSON.stringify(
+            posts.filter((p: { id: string }) => p.id !== report.targetId),
+          ),
+        );
+      } catch {
+        // ignore
+      }
+    } else {
+      try {
+        const comments = JSON.parse(
+          localStorage.getItem("community_comments") || "[]",
+        );
+        localStorage.setItem(
+          "community_comments",
+          JSON.stringify(
+            comments.filter((c: { id: string }) => c.id !== report.targetId),
+          ),
+        );
+      } catch {
+        // ignore
+      }
+    }
+    const updated = reports.filter((r) => r.id !== report.id);
+    setReports(updated);
+    localStorage.setItem("community_reports", JSON.stringify(updated));
+    toast.success("Content removed.");
+  }
+
+  function banUser(report: CommunityReport) {
+    try {
+      const bans = JSON.parse(localStorage.getItem("community_bans") || "[]");
+      bans.push({
+        userId: report.reportedBy,
+        bannedAt: new Date().toISOString(),
+        reason: report.reason,
+      });
+      localStorage.setItem("community_bans", JSON.stringify(bans));
+    } catch {
+      // ignore
+    }
+    const updated = reports.filter((r) => r.id !== report.id);
+    setReports(updated);
+    localStorage.setItem("community_reports", JSON.stringify(updated));
+    toast.success(`User ${report.reportedBy} banned.`);
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold font-mono uppercase tracking-wide flex items-center gap-2">
+          <Users className="w-5 h-5 text-primary" />
+          Community Reports
+          {reports.length > 0 && (
+            <Badge className="bg-red-500/20 text-red-400 border-red-500/30 ml-2">
+              {reports.length}
+            </Badge>
+          )}
+        </h2>
+      </div>
+
+      {reports.length === 0 ? (
+        <div
+          className="text-center py-12 text-muted-foreground"
+          data-ocid="admin.community.empty_state"
+        >
+          <Shield className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p className="font-mono text-sm">No pending community reports.</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {reports.map((r, i) => (
+            <Card
+              key={r.id}
+              className="border border-border"
+              data-ocid={`admin.community.report.item.${i + 1}`}
+            >
+              <CardContent className="pt-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge
+                        variant="outline"
+                        className="font-mono text-xs capitalize"
+                      >
+                        {r.type}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground font-mono">
+                        Reported by: {r.reportedBy}
+                      </span>
+                      <span className="text-xs text-muted-foreground font-mono">
+                        {new Date(r.createdAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <p className="text-sm">{r.reason}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="font-mono text-xs"
+                      onClick={() => deleteContent(r)}
+                      data-ocid={`admin.community.delete_button.${i + 1}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5 mr-1" />
+                      Delete {r.type}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="font-mono text-xs border-red-400/50 text-red-400 hover:bg-red-400/10"
+                      onClick={() => banUser(r)}
+                      data-ocid={`admin.community.ban.button.${i + 1}`}
+                    >
+                      <Lock className="w-3.5 h-3.5 mr-1" />
+                      Ban User
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Admin Music Tab ──────────────────────────────────────────────────────────
+
+interface Track {
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  duration: string;
+  audioUrl: string;
+  coverUrl: string;
+  lyrics?: string;
+}
+
+interface Album {
+  id: string;
+  title: string;
+  artist: string;
+  genre: string;
+  year: string;
+  coverUrl: string;
+  description: string;
+  trackIds: string[];
+}
+
+function AdminMusicTab() {
+  const [tracks, setTracks] = useState<Track[]>(() => {
+    try {
+      const v = localStorage.getItem("megatrx_music_tracks");
+      return v ? JSON.parse(v) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [albums, setAlbums] = useState<Album[]>(() => {
+    try {
+      const v = localStorage.getItem("megatrx_music_albums");
+      return v ? JSON.parse(v) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [showAddAlbum, setShowAddAlbum] = useState(false);
+  const [showAddTrack, setShowAddTrack] = useState(false);
+
+  const [newAlbum, setNewAlbum] = useState({
+    title: "",
+    artist: "",
+    genre: "",
+    year: "",
+    description: "",
+    coverUrl: "",
+  });
+  const [newTrack, setNewTrack] = useState({
+    title: "",
+    artist: "",
+    album: "",
+    duration: "",
+    lyrics: "",
+    audioUrl: "",
+    coverUrl: "",
+  });
+
+  function saveTracks(t: Track[]) {
+    setTracks(t);
+    localStorage.setItem("megatrx_music_tracks", JSON.stringify(t));
+  }
+
+  function saveAlbums(a: Album[]) {
+    setAlbums(a);
+    localStorage.setItem("megatrx_music_albums", JSON.stringify(a));
+  }
+
+  function handleAlbumCover(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) =>
+      setNewAlbum((prev) => ({
+        ...prev,
+        coverUrl: ev.target?.result as string,
+      }));
+    reader.readAsDataURL(file);
+  }
+
+  function handleTrackAudio(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) =>
+      setNewTrack((prev) => ({
+        ...prev,
+        audioUrl: ev.target?.result as string,
+      }));
+    reader.readAsDataURL(file);
+  }
+
+  function handleTrackCover(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) =>
+      setNewTrack((prev) => ({
+        ...prev,
+        coverUrl: ev.target?.result as string,
+      }));
+    reader.readAsDataURL(file);
+  }
+
+  function addAlbum() {
+    if (!newAlbum.title.trim()) {
+      toast.error("Album title required");
+      return;
+    }
+    const album: Album = {
+      ...newAlbum,
+      id: Date.now().toString(),
+      trackIds: [],
+    };
+    saveAlbums([...albums, album]);
+    setNewAlbum({
+      title: "",
+      artist: "",
+      genre: "",
+      year: "",
+      description: "",
+      coverUrl: "",
+    });
+    setShowAddAlbum(false);
+    toast.success("Album added!");
+  }
+
+  function addTrack() {
+    if (!newTrack.title.trim()) {
+      toast.error("Track title required");
+      return;
+    }
+    const track: Track = { ...newTrack, id: Date.now().toString() };
+    saveTracks([...tracks, track]);
+    // Link track to album
+    if (newTrack.album) {
+      const updatedAlbums = albums.map((a) =>
+        a.title === newTrack.album
+          ? { ...a, trackIds: [...a.trackIds, track.id] }
+          : a,
+      );
+      saveAlbums(updatedAlbums);
+    }
+    setNewTrack({
+      title: "",
+      artist: "",
+      album: "",
+      duration: "",
+      lyrics: "",
+      audioUrl: "",
+      coverUrl: "",
+    });
+    setShowAddTrack(false);
+    toast.success("Track added!");
+  }
+
+  function deleteAlbum(id: string) {
+    saveAlbums(albums.filter((a) => a.id !== id));
+    toast.success("Album deleted");
+  }
+
+  function deleteTrack(id: string) {
+    saveTracks(tracks.filter((t) => t.id !== id));
+    toast.success("Track deleted");
+  }
+
+  return (
+    <div className="space-y-8">
+      {/* Albums Section */}
+      <Card className="bg-card border-border">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="font-mono text-sm uppercase tracking-widest flex items-center gap-2">
+            <Music className="w-4 h-4 text-primary" />
+            Albums ({albums.length})
+          </CardTitle>
+          <Button
+            size="sm"
+            onClick={() => setShowAddAlbum(!showAddAlbum)}
+            data-ocid="music.add_album_button"
+          >
+            {showAddAlbum ? "Cancel" : "+ Add Album"}
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {showAddAlbum && (
+            <div className="bg-muted/30 border border-border rounded-lg p-4 space-y-3">
+              <h4 className="font-mono text-xs uppercase tracking-wide text-muted-foreground">
+                New Album
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <Label className="font-mono text-xs">Title *</Label>
+                  <Input
+                    value={newAlbum.title}
+                    onChange={(e) =>
+                      setNewAlbum((p) => ({ ...p, title: e.target.value }))
+                    }
+                    placeholder="Album title"
+                    data-ocid="music.album_title.input"
+                  />
+                </div>
+                <div>
+                  <Label className="font-mono text-xs">Artist</Label>
+                  <Input
+                    value={newAlbum.artist}
+                    onChange={(e) =>
+                      setNewAlbum((p) => ({ ...p, artist: e.target.value }))
+                    }
+                    placeholder="Artist name"
+                  />
+                </div>
+                <div>
+                  <Label className="font-mono text-xs">Genre</Label>
+                  <Input
+                    value={newAlbum.genre}
+                    onChange={(e) =>
+                      setNewAlbum((p) => ({ ...p, genre: e.target.value }))
+                    }
+                    placeholder="e.g. Hip-Hop, R&B"
+                  />
+                </div>
+                <div>
+                  <Label className="font-mono text-xs">Year</Label>
+                  <Input
+                    value={newAlbum.year}
+                    onChange={(e) =>
+                      setNewAlbum((p) => ({ ...p, year: e.target.value }))
+                    }
+                    placeholder="2024"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <Label className="font-mono text-xs">Description</Label>
+                  <Textarea
+                    value={newAlbum.description}
+                    onChange={(e) =>
+                      setNewAlbum((p) => ({
+                        ...p,
+                        description: e.target.value,
+                      }))
+                    }
+                    placeholder="Album description..."
+                    rows={2}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <Label className="font-mono text-xs">Cover Art</Label>
+                  <div className="flex items-center gap-3 mt-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      asChild
+                      data-ocid="music.cover.upload_button"
+                    >
+                      <label className="cursor-pointer">
+                        <Image className="w-4 h-4 mr-1 inline" /> Upload Cover
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleAlbumCover}
+                        />
+                      </label>
+                    </Button>
+                    {newAlbum.coverUrl && (
+                      <img
+                        src={newAlbum.coverUrl}
+                        alt="cover preview"
+                        className="w-12 h-12 object-cover rounded"
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+              <Button
+                onClick={addAlbum}
+                className="w-full"
+                data-ocid="music.album.save_button"
+              >
+                Save Album
+              </Button>
+            </div>
+          )}
+
+          {albums.length === 0 ? (
+            <p
+              className="text-muted-foreground font-mono text-xs py-4 text-center"
+              data-ocid="music.albums.empty_state"
+            >
+              No albums yet. Click "+ Add Album" to create your first album.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {albums.map((album, i) => (
+                <div
+                  key={album.id}
+                  className="flex items-center gap-3 p-3 bg-muted/20 rounded-lg border border-border/50"
+                  data-ocid={`music.album.item.${i + 1}`}
+                >
+                  {album.coverUrl ? (
+                    <img
+                      src={album.coverUrl}
+                      alt={album.title}
+                      className="w-12 h-12 object-cover rounded shrink-0"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 bg-muted rounded flex items-center justify-center shrink-0">
+                      <Music className="w-5 h-5 text-muted-foreground" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm truncate">
+                      {album.title}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {album.artist} · {album.genre} · {album.year}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {
+                        tracks.filter((t) => album.trackIds.includes(t.id))
+                          .length
+                      }{" "}
+                      tracks
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => deleteAlbum(album.id)}
+                    data-ocid={`music.album.delete_button.${i + 1}`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Tracks Section */}
+      <Card className="bg-card border-border">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="font-mono text-sm uppercase tracking-widest flex items-center gap-2">
+            <Music className="w-4 h-4 text-primary" />
+            Tracks ({tracks.length})
+          </CardTitle>
+          <Button
+            size="sm"
+            onClick={() => setShowAddTrack(!showAddTrack)}
+            data-ocid="music.add_track_button"
+          >
+            {showAddTrack ? "Cancel" : "+ Add Track"}
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {showAddTrack && (
+            <div className="bg-muted/30 border border-border rounded-lg p-4 space-y-3">
+              <h4 className="font-mono text-xs uppercase tracking-wide text-muted-foreground">
+                New Track
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <Label className="font-mono text-xs">Title *</Label>
+                  <Input
+                    value={newTrack.title}
+                    onChange={(e) =>
+                      setNewTrack((p) => ({ ...p, title: e.target.value }))
+                    }
+                    placeholder="Track title"
+                    data-ocid="music.track_title.input"
+                  />
+                </div>
+                <div>
+                  <Label className="font-mono text-xs">Artist</Label>
+                  <Input
+                    value={newTrack.artist}
+                    onChange={(e) =>
+                      setNewTrack((p) => ({ ...p, artist: e.target.value }))
+                    }
+                    placeholder="Artist name"
+                  />
+                </div>
+                <div>
+                  <Label className="font-mono text-xs">Album</Label>
+                  <select
+                    value={newTrack.album}
+                    onChange={(e) =>
+                      setNewTrack((p) => ({ ...p, album: e.target.value }))
+                    }
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                  >
+                    <option value="">-- No Album --</option>
+                    {albums.map((a) => (
+                      <option key={a.id} value={a.title}>
+                        {a.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label className="font-mono text-xs">
+                    Duration (e.g. 3:45)
+                  </Label>
+                  <Input
+                    value={newTrack.duration}
+                    onChange={(e) =>
+                      setNewTrack((p) => ({ ...p, duration: e.target.value }))
+                    }
+                    placeholder="3:45"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <Label className="font-mono text-xs">Lyrics</Label>
+                  <Textarea
+                    value={newTrack.lyrics}
+                    onChange={(e) =>
+                      setNewTrack((p) => ({ ...p, lyrics: e.target.value }))
+                    }
+                    placeholder="Paste lyrics here..."
+                    rows={3}
+                  />
+                </div>
+                <div>
+                  <Label className="font-mono text-xs">Audio File</Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      asChild
+                      data-ocid="music.audio.upload_button"
+                    >
+                      <label className="cursor-pointer">
+                        <Music className="w-4 h-4 mr-1 inline" /> Upload Audio
+                        <input
+                          type="file"
+                          accept="audio/*"
+                          className="hidden"
+                          onChange={handleTrackAudio}
+                        />
+                      </label>
+                    </Button>
+                    {newTrack.audioUrl && (
+                      <span className="text-xs text-green-500">
+                        ✓ Audio loaded
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <Label className="font-mono text-xs">Track Cover Art</Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Button size="sm" variant="outline" asChild>
+                      <label className="cursor-pointer">
+                        <Image className="w-4 h-4 mr-1 inline" /> Upload Cover
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleTrackCover}
+                        />
+                      </label>
+                    </Button>
+                    {newTrack.coverUrl && (
+                      <img
+                        src={newTrack.coverUrl}
+                        alt="cover"
+                        className="w-10 h-10 object-cover rounded"
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+              <Button
+                onClick={addTrack}
+                className="w-full"
+                data-ocid="music.track.save_button"
+              >
+                Save Track
+              </Button>
+            </div>
+          )}
+
+          {tracks.length === 0 ? (
+            <p
+              className="text-muted-foreground font-mono text-xs py-4 text-center"
+              data-ocid="music.tracks.empty_state"
+            >
+              No tracks yet. Click "+ Add Track" to upload your first song.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {tracks.map((track, i) => (
+                <div
+                  key={track.id}
+                  className="flex items-center gap-3 p-3 bg-muted/20 rounded-lg border border-border/50"
+                  data-ocid={`music.track.item.${i + 1}`}
+                >
+                  {track.coverUrl ? (
+                    <img
+                      src={track.coverUrl}
+                      alt={track.title}
+                      className="w-10 h-10 object-cover rounded shrink-0"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 bg-muted rounded flex items-center justify-center shrink-0">
+                      <Music className="w-4 h-4 text-muted-foreground" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm truncate">
+                      {track.title}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {track.artist}
+                      {track.album ? ` · ${track.album}` : ""} ·{" "}
+                      {track.duration}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => deleteTrack(track.id)}
+                    data-ocid={`music.track.delete_button.${i + 1}`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
